@@ -123,7 +123,7 @@ const SLACK_NOTICE_MESSAGES_KO = {
   // up once it is done, said once per closing.
   taskClosingWait: "작업을 마무리하고 있어요. 끝나면 이 글에 이어서 답할게요.",
   taskLimitConversation:
-    "이 대화에 열린 작업이 3개라 새 작업을 시작하지 않았어요. 열린 작업이 끝나면 다시 요청해 주세요",
+    "이 대화에 열린 작업이 3개 이상이라 새 작업을 시작하지 않았어요. 열린 작업을 닫아 3개보다 적어지면 새로 시작할 수 있어요",
   taskLimitAgent:
     "이 에이전트에 열린 작업이 10개라 새 작업을 시작하지 않았어요. 열린 작업이 끝나면 다시 요청해 주세요",
   taskRepository:
@@ -251,7 +251,7 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     taskClosingWait:
       "作業をまとめています。終わったら、この投稿に続けて返信します。",
     taskLimitConversation:
-      "この会話には進行中の作業が3件あるため、新しい作業は始めませんでした。進行中の作業が終わってから、もう一度依頼してください",
+      "この会話には進行中の作業が3件以上あるため、新しい作業は始めませんでした。進行中の作業を閉じて3件未満になると、新しく始められます",
     taskLimitAgent:
       "このエージェントには進行中の作業が10件あるため、新しい作業は始めませんでした。進行中の作業が終わってから、もう一度依頼してください",
     taskRepository:
@@ -364,7 +364,7 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     taskClosingWait:
       "I'm wrapping up the task. Once it's done, I'll reply to this message.",
     taskLimitConversation:
-      "This conversation already has 3 open tasks, so a new one wasn't started. Ask again once one of them finishes",
+      "This conversation already has 3 or more open tasks, so a new one wasn't started. Close open tasks until fewer than 3 remain to start a new one",
     taskLimitAgent:
       "This agent already has 10 open tasks, so a new one wasn't started. Ask again once one of them finishes",
     taskRepository:

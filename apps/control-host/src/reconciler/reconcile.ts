@@ -46,6 +46,8 @@ export type ReconcilerRun = {
   // days, and the lines only they held.
   channelSummaryHistoryPruned: ChannelSummaryHistoryPrune;
   slackMembersPurged: number;
+  // Hand-off sessions given closing rules, and taken-back ones losing them.
+  handOffClosing: { filled: number; cleared: number };
   // Tasks whose close as abandoned this pass started (closed, or a drain
   // accepted); null on a dry run, which closes none.
   tasksClosedIdle: number | null;
@@ -179,6 +181,13 @@ export async function runReconciler(input: {
     dryRun: boolean;
     limit: number;
   }): Promise<number>;
+  // DM hand-offs to a standalone session (v1-b/DM3) given the closing
+  // rules a DM's task has, or those taken back losing them. Before the
+  // closes below, so a hand-off filled now is a task they see.
+  syncHandOffClosing(options: {
+    dryRun: boolean;
+    limit: number;
+  }): Promise<{ filled: number; cleared: number }>;
   // Open tasks idle, or quiet past their limits, whose close as abandoned
   // (v1-b/C2) starts, at most `limit` of them.
   closeIdleTasks(limit: number): Promise<number>;
@@ -334,6 +343,12 @@ export async function runReconciler(input: {
     dry_run: dryRun,
     deleted_count: authAttemptsPurged,
   });
+  const handOffClosing = await input.syncHandOffClosing({ dryRun, limit });
+  input.logger.info("Hand-off closing rules synced", {
+    dry_run: dryRun,
+    filled_count: handOffClosing.filled,
+    cleared_count: handOffClosing.cleared,
+  });
   const tasksClosedIdle = dryRun
     ? null
     : await input.closeIdleTasks(TASK_TIME_CLOSES_PER_PASS);
@@ -388,6 +403,7 @@ export async function runReconciler(input: {
     slackSourceMarksPurged,
     channelSummaryHistoryPruned,
     slackMembersPurged,
+    handOffClosing,
     tasksClosedIdle,
     ownership,
     toolCalls,

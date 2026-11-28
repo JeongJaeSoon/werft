@@ -41,6 +41,7 @@ import {
   SLACK_NOTICE_MESSAGES,
   slackMirrorCorrelationIdSchema,
   TASK_CLOSING_DEFAULT,
+  TASK_LIMITS_DEFAULT,
 } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
@@ -8526,9 +8527,16 @@ describe.each(ENGINES)("a task's close on %s", (engine) => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);
     const sessionId = await sessionOf(fixture);
+    // As spawn_task opens one: its rules and its interpretation together.
     await db
       .update(sessions)
-      .set({ taskClosing: closing })
+      .set({
+        taskClosing: closing,
+        taskInterpretation:
+          closing === null
+            ? null
+            : { goal: "g", doneWhen: "d", limits: { ...TASK_LIMITS_DEFAULT } },
+      })
       .where(eq(sessions.id, sessionId));
     await db.update(sessionLinks).set({ reportMode: "progress" });
     await db

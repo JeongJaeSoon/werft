@@ -20,6 +20,7 @@ import { sql } from "drizzle-orm";
 import { findPgError } from "../control-shared.ts";
 import {
   adoptSessionParent,
+  handOffClosing,
   keptTurnRequest,
   lockedDeletedSource,
   releaseKeptTurnRequest,
@@ -148,9 +149,9 @@ const ownBindOf = (route: PendingConversationRoute) => sql`
 
 /**
  * Takes back what a DM hand-off bound for a turn that ends unhanded: the
- * link and, with no link left, the parent. Kept once any input went in by
- * that link, this turn's or another message's, or once a Slack row was
- * queued for it.
+ * link and, with no link left, the parent and the closing rules it wrote.
+ * Kept once any input went in by that link, this turn's or another
+ * message's, or once a Slack row was queued for it.
  */
 async function dropOwnBind(tx: Database, route: PendingConversationRoute) {
   try {
@@ -181,8 +182,12 @@ async function dropOwnBind(tx: Database, route: PendingConversationRoute) {
           RETURNING sl.id`),
       );
       if (dropped.length === 0) return;
+      // The closing rules go with it: a hand-off's session has no
+      // interpretation, which a task opened as one always has.
       await sp.execute(sql`
-        UPDATE sessions SET parent_conversation_id = NULL
+        UPDATE sessions SET parent_conversation_id = NULL,
+          task_closing = CASE WHEN task_interpretation IS NULL THEN NULL
+            ELSE task_closing END
         WHERE id = ${route.sessionId}::uuid
           AND parent_conversation_id = ${route.conversationId}::uuid
           AND NOT EXISTS (SELECT 1 FROM session_links
@@ -413,6 +418,12 @@ export function createPostgresConversationRoutes(
               RETURNING id`),
           );
           if (inserted.length === 0) throw new BindRefused("thread_taken");
+          // A task of the DM from here on, under the closing rules a task
+          // the DM opens gets; rules already there stay.
+          await tx.execute(sql`
+            UPDATE sessions
+            SET task_closing = ${handOffClosing()}
+            WHERE id = ${route.sessionId}::uuid AND task_closing IS NULL`);
           return "bound" as const;
         });
       } catch (error) {

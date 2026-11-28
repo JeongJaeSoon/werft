@@ -23,6 +23,7 @@ import {
   reconcileOverdueInterrupts,
   reconcileProviderExchanges,
   settleDeadUnknownBudget,
+  syncHandOffClosing,
   unknownBudgetByAccount,
 } from "@werft-ai/db";
 import { SEQUENTIAL_ROLE_POOL_MAX } from "@werft-ai/db/pool";
@@ -181,6 +182,7 @@ export function reconcileOnce(
         ...options,
         budgetMs: AUTH_ATTEMPT_PURGE_BUDGET_MS,
       }),
+    syncHandOffClosing: (options) => syncHandOffClosing(db, options),
     closeIdleTasks: (limit) =>
       createPostgresTaskCloses(db).closeOnTimeRules(limit),
     reconcileOwnership: (options) => reconcileAgentOwnership(db, options),
