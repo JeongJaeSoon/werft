@@ -4843,7 +4843,7 @@ describe("startCredentialProxy", () => {
        * the system's lookup of localhost, which may be ::1 alone, so it is
        * answered there too; the judgment asks the test's resolver.
        */
-      function byName(url: string): string {
+      async function byName(url: string): Promise<string> {
         try {
           servers.push(
             Bun.serve({
@@ -4858,7 +4858,12 @@ describe("startCredentialProxy", () => {
             }),
           );
         } catch {}
-        return url.replace("127.0.0.1", "localhost");
+        const named = url.replace("127.0.0.1", "localhost");
+        // Said here rather than as a 503 further down: the name reaches it.
+        expect(await fetch(named).then((response) => response.status)).toBe(
+          401,
+        );
+        return named;
       }
 
       test("with an API that sends no mark, nothing changes: the operator's list decides", async () => {
@@ -5199,7 +5204,7 @@ describe("startCredentialProxy", () => {
         const looked: string[] = [];
         const lines: string[] = [];
         const auth = authorizer(() => Response.json(grantOf(url)));
-        const server = proxy(byName(auth.url), 1, {
+        const server = proxy(await byName(auth.url), 1, {
           logger: createProxyLogger("warn", (line) => lines.push(line)),
           resolve: async (host) => {
             looked.push(host);
@@ -5269,7 +5274,7 @@ describe("startCredentialProxy", () => {
             return Response.json({ state: "open" }, { status: 201 });
           },
         );
-        const server = proxy(byName(auth.url), 1, {
+        const server = proxy(await byName(auth.url), 1, {
           logger: createProxyLogger("warn", (line) => lines.push(line)),
           resolve: async (host) =>
             host === "localhost"
@@ -5277,6 +5282,7 @@ describe("startCredentialProxy", () => {
               : ((await upstreamAnswers.shift()) ?? []),
           selfAddresses: () => [],
         });
+        // An MCP exchange, which opens no ledger entry of its own.
         const taught = async (address: string) => {
           authorizerAnswer = [address];
           upstreamAnswers.push(Promise.resolve(["93.184.216.34"]));
@@ -5290,7 +5296,7 @@ describe("startCredentialProxy", () => {
             answer = resolve;
           }),
         );
-        const waiting = call(server.port, TOOLS_CALL);
+        const waiting = messages(server.port);
         await until(() => upstreamAnswers.length === 0);
         expect(await taught("10.0.0.8")).toBe(403);
         answer(["10.0.0.8"]);
@@ -5298,6 +5304,8 @@ describe("startCredentialProxy", () => {
         expect(lines.join("\n")).toContain(
           "10.0.0.8 is the installation's own",
         );
+        // Refused where it was judged: no ledger entry was opened for it.
+        expect(auth.ledgered).toEqual([]);
         // And while a judged exchange waits for its ledger entry, the
         // address it was judged at becomes the authorizer's: not dialled,
         // and the entry is given back.
@@ -5314,7 +5322,41 @@ describe("startCredentialProxy", () => {
         );
         await until(() => auth.ledgered.length === 2);
         expect(auth.ledgered.map(({ op }) => op)).toEqual(["open", "release"]);
-      });
+        expect(auth.ledgered[1]?.exchange_id).toBe(
+          auth.ledgered[0]?.exchange_id ?? "",
+        );
+      }, 15_000);
+
+      test("the authorizer's address an exchange looked up stays its own however long its upstream's lookup takes", async () => {
+        let answer: (addresses: string[]) => void = () => {};
+        const pending = new Promise<string[]>((resolve) => {
+          answer = resolve;
+        });
+        let asked = false;
+        const lines: string[] = [];
+        const auth = authorizer(() =>
+          Response.json(grantOf(`http://${INSIDE}:4000/mcp`)),
+        );
+        const server = proxy(await byName(auth.url), 1, {
+          logger: createProxyLogger("warn", (line) => lines.push(line)),
+          resolve: async (host) => {
+            if (host === "localhost") return ["10.0.0.7"];
+            asked = true;
+            return pending;
+          },
+          selfAddresses: () => [],
+          authorizerAddressMemoryMs: 20,
+        });
+        const waiting = call(server.port, TOOLS_CALL);
+        await until(() => asked);
+        // Longer than the shared memory keeps an address.
+        await Bun.sleep(80);
+        answer(["10.0.0.7"]);
+        expect((await waiting).status).toBe(403);
+        expect(lines.join("\n")).toContain(
+          "10.0.0.7 is the installation's own",
+        );
+      }, 15_000);
 
       test("a judge's private endpoint is held to the same rules", async () => {
         const lines: string[] = [];

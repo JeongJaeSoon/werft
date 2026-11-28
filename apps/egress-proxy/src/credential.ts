@@ -1453,6 +1453,8 @@ export type CredentialProxyOptions = {
    * be; the host's interfaces when absent.
    */
   selfAddresses?: () => readonly string[];
+  /** How long an address the authorizer's name resolved to is remembered. */
+  authorizerAddressMemoryMs?: number;
   /** Waits between tries of a usage report the authorizer could not take. */
   usageReportBackoffMs?: readonly number[];
   /**
@@ -1567,7 +1569,7 @@ export function startCredentialProxy(
   const authorizerHost =
     hostKey(authorizeUrl.hostname) ?? normalizeHost(authorizeUrl.hostname);
   const authorizerSeen = addressMemory(
-    AUTHORIZER_ADDRESS_MEMORY_MS,
+    options.authorizerAddressMemoryMs ?? AUTHORIZER_ADDRESS_MEMORY_MS,
     MAX_AUTHORIZER_ADDRESSES,
   );
   const selfAddresses = options.selfAddresses ?? interfaceAddresses;
@@ -1904,21 +1906,22 @@ export function startCredentialProxy(
   }
 
   /**
-   * Looks the authorizer's name up into the memory of its addresses. False
-   * when the answer has none to tell it by.
+   * Looks the authorizer's name up into the memory of its addresses, and
+   * answers what it found; null when the answer has none to tell it by.
    */
-  async function authorizerLookedUp(): Promise<boolean> {
-    if (isIP(authorizerHost) !== 0) return true;
+  async function authorizerLookedUp(): Promise<string[] | null> {
+    if (isIP(authorizerHost) !== 0) return [];
     let answers: string[];
     try {
       // The name as the control requests look it up, trailing dot and all.
       answers = await resolve(authorizeUrl.hostname);
     } catch {
-      return false;
+      return null;
     }
     const now = addressKeys(answers);
-    if (now.length > 0) authorizerSeen(now);
-    return now.length > 0;
+    if (now.length === 0) return null;
+    authorizerSeen(now);
+    return now;
   }
 
   /** The authorizer's addresses as remembered this instant; null with a hole. */
@@ -1988,12 +1991,18 @@ export function startCredentialProxy(
     const host = normalizeHost(upstream.hostname);
     const port = portOf(upstream);
     const fields = { ...who, host, port };
+    // The authorizer's addresses by this exchange's own lookup: its for
+    // the whole judgment, however long the upstream's lookup then takes.
+    let own: readonly string[] = [];
     if (denied !== null) {
+      const looked = await untilEnded(authorizerLookedUp(), signal);
       // Before the name is looked up, and before the private rules pass it.
-      const early = (await untilEnded(authorizerLookedUp(), signal))
-        ? privateVerdict(denied, host, [])
-        : UNKNOWN_AUTHORIZER;
+      const early =
+        looked === null
+          ? UNKNOWN_AUTHORIZER
+          : privateVerdict(denied, host, [], looked);
       if (early !== null) return refusedPrivate(early, fields, purpose);
+      own = looked ?? [];
     }
     const decision = await untilEnded(
       policy === null
@@ -2035,7 +2044,9 @@ export function startCredentialProxy(
     // Read afresh now that the lookup has been waited for: another exchange
     // may have learnt a new address of the authorizer meanwhile.
     const late =
-      denied === null ? null : privateVerdict(denied, host, decision.addresses);
+      denied === null
+        ? null
+        : privateVerdict(denied, host, decision.addresses, own);
     if (late !== null) return refusedPrivate(late, fields, purpose);
     // A certificate is checked for a name; an address would have to be
     // checked for itself, which the upstream client does not do. Nothing in
@@ -2053,7 +2064,7 @@ export function startCredentialProxy(
     const address = decision.addresses[0] ?? "";
     if (denied === null) return { address, host, port };
     // And read once more where the connection starts, on top of this.
-    const known = authorizerNow() ?? [];
+    const known = [...own, ...(authorizerNow() ?? [])];
     return {
       address,
       host,
