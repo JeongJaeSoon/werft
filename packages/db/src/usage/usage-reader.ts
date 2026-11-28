@@ -134,10 +134,11 @@ function talkedBy(filter: UsageSummaryFilter): SQL {
 }
 
 // Only a settled call has a cost (conversation_calls_settled_check); a
-// reserved, in-flight or resolved one keeps the figure incomplete, as an open
-// or unreported turn keeps a session's. A released one never ran and is
-// read nowhere (talkInPeriod), so an agent with only those has no row.
-const talkIncomplete = sql`${conversationCalls.state} IN ('reserved', 'in_flight', 'resolved')`;
+// reserved, in-flight, timed-out or resolved one keeps the figure
+// incomplete, as an open or unreported turn keeps a session's. A released
+// one never ran and is read nowhere (talkInPeriod), so an agent with only
+// those has no row.
+const talkIncomplete = sql`${conversationCalls.state} IN ('reserved', 'in_flight', 'timed_out', 'resolved')`;
 
 // Each split of a conversation's cost is one FILTER list over the calls.
 const TALK_BY_CLASS = [

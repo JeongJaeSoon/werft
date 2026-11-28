@@ -2185,6 +2185,13 @@
       "when": 1795860322859,
       "tag": "0402_workspace_mcp_auth_none",
       "breakpoints": true
+    },
+    {
+      "idx": 404,
+      "version": "7",
+      "when": 1795863972176,
+      "tag": "0404_conversation_call_timed_out",
+      "breakpoints": true
     }
   ]
 }

@@ -100,11 +100,14 @@ type Logger = {
  * Runs one provider call that serves no session: reserved and given a
  * one-call token first, then sent as one Messages request through the egress
  * proxy's provider route, which puts the connection's credential on it and
- * settles the reservation from what it used. Never throws; nothing of the
- * prompt or the answer is logged.
+ * settles the reservation from what it used. A call that ends with no answer
+ * to read (timed out, unreachable, a provider error) is given up here, so its
+ * place under the call limits is free for the next call whatever the proxy
+ * reports; one the proxy settled already is left as it is. Never throws;
+ * nothing of the prompt or the answer is logged.
  */
 export function createConversationCallExecutor(deps: {
-  calls: Pick<ConversationCalls, "issue">;
+  calls: Pick<ConversationCalls, "issue" | "giveUp">;
   // The proxy's credential listener, e.g. http://egress-proxy:3129.
   egressUrl: string;
   /** Held to the egress proxy's host alone. */
@@ -152,11 +155,23 @@ export function createConversationCallExecutor(deps: {
       }
       if (issued.outcome !== "issued") return issued;
       const { callId } = issued;
-      const failed = <R extends ConversationCallResult<T>>(result: R): R => {
+      const failed = async <R extends ConversationCallResult<T>>(
+        result: R,
+      ): Promise<R> => {
+        // An answer was read: the proxy reports what it used.
+        let givenUp: string | undefined;
+        if (result.outcome !== "malformed") {
+          try {
+            givenUp = (await deps.calls.giveUp(callId)).outcome;
+          } catch (error) {
+            givenUp = `failed:${error instanceof Error ? error.name : "error"}`;
+          }
+        }
         deps.logger.warn("Conversation call failed", {
           call_id: callId,
           outcome: result.outcome,
           ...("status" in result ? { status: result.status } : {}),
+          ...(givenUp === undefined ? {} : { given_up: givenUp }),
         });
         return result;
       };

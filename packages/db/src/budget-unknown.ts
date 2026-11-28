@@ -364,7 +364,7 @@ type ReservationRow = typeof budgetReservations.$inferSelect;
 
 /**
  * The writes of a close, under the locks resolveOneIn takes: its call leaves
- * what is in progress (a conversation call becomes `resolved`, a session
+ * what is in progress (a conversation call in flight or timed out becomes `resolved`, a session
  * call's exchange row is released), the reservation becomes `resolved` at
  * `charged`, the hold comes off its account, and a `resolve_unknown_budget`
  * receipt is written with it.
@@ -395,7 +395,7 @@ async function closeUnknownIn(
   const { row, call, charged } = input;
   const callId = row.callId;
   const held = { costUsd: row.costUsd, tokens: row.tokens };
-  if (call?.state === "in_flight") {
+  if (call?.state === "in_flight" || call?.state === "timed_out") {
     await tx
       .update(conversationCalls)
       .set({ state: "resolved", endedAt: DB_NOW })

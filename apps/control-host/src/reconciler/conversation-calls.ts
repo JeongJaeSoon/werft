@@ -7,9 +7,12 @@ import {
 
 /**
  * Releases the reservations of conversation calls whose token expired
- * unused, giving the account back what the issue held. A call the proxy
- * used and never reported within the lease is marked unknown and stays
- * held: its end is unknown.
+ * unused, giving the account back what the issue held. A call of no turn
+ * still in flight past the lease is timed out: its caller is gone, so its
+ * place under the call limits is given back, each one logged; its
+ * reservation stays held as of unknown end. Any other call the proxy used
+ * and never reported within the lease is marked unknown and stays held:
+ * its end is unknown.
  */
 export async function runConversationCallReconciler(input: {
   environment?: ReconcilerEnvironment;
@@ -18,6 +21,14 @@ export async function runConversationCallReconciler(input: {
     dryRun: boolean;
     limit: number;
   }): Promise<{ released: number }>;
+  timeOutStale(options: { dryRun: boolean; limit: number }): Promise<{
+    timedOut: {
+      callId: string;
+      workspaceId: string;
+      agentId: string;
+      startedAt: Date;
+    }[];
+  }>;
   markUnknown(options: {
     dryRun: boolean;
     limit: number;
@@ -26,11 +37,25 @@ export async function runConversationCallReconciler(input: {
     atLeast: number;
     limit: number;
   }): Promise<{ workspaceId: string; agentId: string; unknown: number }[]>;
-}): Promise<{ released: number; unknown: number }> {
+}): Promise<{ released: number; timedOut: number; unknown: number }> {
   const { limit, dryRun } = reconcilerSettings(
     input.environment ?? process.env,
   );
   const { released } = await input.releaseExpired({ dryRun, limit });
+  // At most `limit` a pass, so a pile left by a crash drains over passes.
+  const { timedOut } = await input.timeOutStale({ dryRun, limit });
+  for (const call of timedOut) {
+    input.logger.warn(
+      "Conversation call timed out: its caller never ended it",
+      {
+        dry_run: dryRun,
+        call_id: call.callId,
+        workspace_id: call.workspaceId,
+        agent_id: call.agentId,
+        started_at: call.startedAt.toISOString(),
+      },
+    );
+  }
   const { unknown } = await input.markUnknown({ dryRun, limit });
   // Unknown calls hold the agent's concurrency limit until settled or an
   // operator releases them.
@@ -47,7 +72,8 @@ export async function runConversationCallReconciler(input: {
   input.logger.info("Conversation call reservations reconciled", {
     dry_run: dryRun,
     released_count: released,
+    timed_out_count: timedOut.length,
     unknown_count: unknown,
   });
-  return { released, unknown };
+  return { released, timedOut: timedOut.length, unknown };
 }

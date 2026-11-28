@@ -4,6 +4,7 @@ import {
   CONVERSATION_TURN_MODEL_CALL_LIMIT,
   CONVERSATION_TURN_TOOL_CALL_LIMIT,
   type ConversationCallClass,
+  type ConversationCallId,
   type ConversationId,
   type ConversationKind,
   type ConversationTopicId,
@@ -590,6 +591,38 @@ async function insertTurnPermitIn(
     expiresAt: permit.expiresAt,
     place: conversation.kind,
   };
+}
+
+/**
+ * How long a call of no turn may stay in flight before the reconciler takes
+ * its caller for gone. The caller waits CONVERSATION_CALL_TIMEOUT_MS (25 s)
+ * and gives the call up itself; the proxy cuts an exchange whose token
+ * expired (2 min from the issue) at its next regrant (30 s), or after its
+ * grace (90 s) when the authorizer cannot answer: by its defaults no
+ * exchange outlives 4 min from its start. The provider exchange lease (5
+ * min) is past that, and is when markUnknown gives up on the report too.
+ */
+export const CONVERSATION_CALL_STALE_MS = PROVIDER_EXCHANGE_LEASE_MS;
+
+/**
+ * An in-flight call ended with no report, under its budget lock: it leaves
+ * the call limits' count, and its reservation stays held as of unknown end.
+ */
+async function timeOutIn(tx: Database, callId: ConversationCallId) {
+  await tx
+    .update(conversationCalls)
+    .set({
+      state: "timed_out",
+      endedAt: DB_NOW,
+      unknownAt: sql`COALESCE(${conversationCalls.unknownAt}, ${DB_NOW})`,
+    })
+    .where(
+      and(
+        eq(conversationCalls.id, callId),
+        eq(conversationCalls.state, "in_flight"),
+      ),
+    );
+  await markBudgetUnknownIn(tx, callId, true);
 }
 
 export function createPostgresConversationCalls(
@@ -1274,7 +1307,10 @@ export function createPostgresConversationCalls(
         if (call.exchangeId !== input.exchangeId)
           return { outcome: "conflict" };
         const [reservation] = await tx
-          .select({ unmetered: budgetReservations.unmetered })
+          .select({
+            unmetered: budgetReservations.unmetered,
+            state: budgetReservations.state,
+          })
           .from(budgetReservations)
           .where(eq(budgetReservations.callId, input.callId));
         const unmetered = reservation?.unmetered ?? false;
@@ -1293,7 +1329,11 @@ export function createPostgresConversationCalls(
           ? { costUsd: 0, pricedBy: "unmetered" as const }
           : input.priceFor({ unmetered, model: call.model });
         const costUsd = unmetered ? 0 : toStoredCost(priced.costUsd);
-        if (call.state === "resolved") {
+        // A timed-out call an older image resolved keeps its state there.
+        if (
+          call.state === "resolved" ||
+          (call.state === "timed_out" && reservation?.state === "resolved")
+        ) {
           // An operator closed it while its end was unknown: it stays closed,
           // and the report adds the call's one adjustment to its account,
           // and says what priced it: a report again answers with that.
@@ -1331,9 +1371,10 @@ export function createPostgresConversationCalls(
             pricedBy: call.pricedBy,
           };
         }
-        // Bound and not settled is in flight, its end unknown or not, held
-        // either way: a release takes only an unbound row. A late report
-        // settles an unknown one at what it says.
+        // Bound and not settled is in flight or timed out, its end unknown or
+        // not, held either way: a release takes only an unbound row. A late
+        // report settles it at what it says, once: a timed-out call becomes
+        // settled, never in flight again.
         const tokens = reservationTokens(input.usage);
         const settled = await settleBudgetIn(tx, {
           callId: input.callId,
@@ -1445,6 +1486,74 @@ export function createPostgresConversationCalls(
         if (done) unknown++;
       }
       return { unknown };
+    },
+
+    giveUpAtomic({ callId }) {
+      return db.transaction(async (tx) => {
+        await lockBudgetCall(tx, callId);
+        const [call] = await tx
+          .select({ state: conversationCalls.state })
+          .from(conversationCalls)
+          .where(eq(conversationCalls.id, callId))
+          .for("update");
+        if (call?.state === "in_flight") {
+          await timeOutIn(tx, callId);
+          return { outcome: "timed_out" as const };
+        }
+        if (call?.state === "reserved") {
+          // No grant binds it after this: a grant binds only a reserved row.
+          await tx
+            .update(conversationCalls)
+            .set({ state: "released", endedAt: DB_NOW })
+            .where(eq(conversationCalls.id, callId));
+          await releaseBudgetIn(tx, callId);
+          return { outcome: "released" as const };
+        }
+        return { outcome: "ended" as const };
+      });
+    },
+
+    async timeOutStale({ limit, dryRun }) {
+      const stale = and(
+        eq(conversationCalls.state, "in_flight"),
+        // A turn's call streams as long as its turn runs.
+        isNull(conversationCalls.conversationTurnId),
+        sql`${conversationCalls.startedAt} < ${fromDbNow(-CONVERSATION_CALL_STALE_MS)}`,
+      );
+      const found = await db
+        .select({
+          callId: conversationCalls.id,
+          workspaceId: conversationCalls.workspaceId,
+          agentId: conversationCalls.agentId,
+          startedAt: conversationCalls.startedAt,
+        })
+        .from(conversationCalls)
+        .where(stale)
+        .orderBy(conversationCalls.startedAt)
+        .limit(limit);
+      const rows = found.map((row) => ({
+        ...row,
+        startedAt: row.startedAt as Date,
+      }));
+      if (dryRun) return { timedOut: rows };
+      const timedOut = [];
+      for (const row of rows) {
+        const done = await db.transaction(async (tx) => {
+          await lockBudgetCall(tx, row.callId);
+          // Judged again under the call's lock: a report that settled it
+          // since keeps it.
+          const [call] = await tx
+            .select({ id: conversationCalls.id })
+            .from(conversationCalls)
+            .where(and(eq(conversationCalls.id, row.callId), stale))
+            .for("update");
+          if (!call) return false;
+          await timeOutIn(tx, row.callId);
+          return true;
+        });
+        if (done) timedOut.push(row);
+      }
+      return { timedOut };
     },
 
     async unknownByAgent({ atLeast, limit }) {

@@ -469,6 +469,13 @@ export function createConversationCalls(deps: {
       };
     },
     /**
+     * Gives up a call its caller stopped waiting for (giveUpAtomic): its
+     * place under the call limits is free from now.
+     */
+    giveUp(callId: ConversationCallId) {
+      return deps.store.giveUpAtomic({ callId });
+    },
+    /**
      * Ends a turn issued here once its runtime is done with it, and its
      * permit with it: no call is granted on it after this.
      */

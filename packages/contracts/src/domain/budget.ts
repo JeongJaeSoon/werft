@@ -63,7 +63,11 @@ export type BudgetReservationState =
  * budget account when its token is issued, `in_flight` once the proxy used
  * the token, `settled` by the usage report. An unused token's reservation
  * is `released` when it expires. A call in flight whose end was unknown is
- * `resolved` when an operator closes its reservation.
+ * `resolved` when an operator closes its reservation. A call of no turn in
+ * flight that its caller gave up on, or that outlived the provider exchange
+ * lease, is `timed_out`: it holds no place under the call limits, and its
+ * reservation stays held, of unknown end, until a late report settles it
+ * or an operator resolves it.
  */
 export const CONVERSATION_CALL_STATE_VALUES = [
   "reserved",
@@ -71,6 +75,7 @@ export const CONVERSATION_CALL_STATE_VALUES = [
   "settled",
   "released",
   "resolved",
+  "timed_out",
 ] as const;
 export type ConversationCallState =
   (typeof CONVERSATION_CALL_STATE_VALUES)[number];

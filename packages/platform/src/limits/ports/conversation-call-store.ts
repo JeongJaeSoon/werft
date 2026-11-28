@@ -153,6 +153,34 @@ export interface ConversationCallStore {
     dryRun: boolean;
   }): Promise<{ unknown: number }>;
   /**
+   * Gives up a call its caller stopped waiting for, with no answer it could
+   * read: one in flight becomes `timed_out`, leaving the call limits'
+   * count, its reservation held as of unknown end until a late report
+   * settles it (once; it is never in flight again); one no grant bound yet
+   * is released, and no grant binds it after. A call already ended, or
+   * none, is left as it is.
+   */
+  giveUpAtomic(input: {
+    callId: ConversationCallId;
+  }): Promise<{ outcome: "timed_out" | "released" | "ended" }>;
+  /**
+   * Times out, as giveUpAtomic does, up to `limit` calls of no turn still in
+   * flight past CONVERSATION_CALL_STALE_MS from their start, the oldest
+   * first: their caller died or never gave them up. Says which.
+   */
+  timeOutStale(input: {
+    limit: number;
+    /** Lists what it would time out, and writes nothing. */
+    dryRun: boolean;
+  }): Promise<{
+    timedOut: {
+      callId: ConversationCallId;
+      workspaceId: string;
+      agentId: string;
+      startedAt: Date;
+    }[];
+  }>;
+  /**
    * The agents holding at least `atLeast` calls of unknown end, the most
    * first, at most `limit` of them.
    */

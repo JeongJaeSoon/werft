@@ -4214,6 +4214,7 @@ export const conversationCalls = pgTable(
         WHEN 'in_flight' THEN ${table.exchangeId} IS NOT NULL AND ${table.startedAt} IS NOT NULL AND ${table.endedAt} IS NULL AND ${table.usage} IS NULL
         WHEN 'settled' THEN ${table.exchangeId} IS NOT NULL AND ${table.startedAt} IS NOT NULL AND ${table.endedAt} IS NOT NULL AND ${table.usage} IS NOT NULL
         WHEN 'resolved' THEN ${table.exchangeId} IS NOT NULL AND ${table.startedAt} IS NOT NULL AND ${table.endedAt} IS NOT NULL AND ${table.usage} IS NULL
+        WHEN 'timed_out' THEN ${table.exchangeId} IS NOT NULL AND ${table.startedAt} IS NOT NULL AND ${table.endedAt} IS NOT NULL AND ${table.usage} IS NULL
         ELSE ${table.exchangeId} IS NULL AND ${table.startedAt} IS NULL AND ${table.endedAt} IS NOT NULL AND ${table.usage} IS NULL
       END`,
     ),
