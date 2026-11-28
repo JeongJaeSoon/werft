@@ -93,7 +93,12 @@ export function UsageInitiatorSplit({
             : format.usd(usd)}
         </Value>
         {key === "session" && !loading && unknownLine ? (
-          <Text as="span" variant="meta" title={unknownLine}>
+          <Text
+            as="span"
+            variant="meta"
+            title={unknownLine}
+            className="whitespace-normal"
+          >
             {unknownLine}
           </Text>
         ) : null}

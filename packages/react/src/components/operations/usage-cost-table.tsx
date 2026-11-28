@@ -95,7 +95,8 @@ function UnknownCalls({ row }: { readonly row: Row }) {
   const text = unknownPrice.calls(format.count(calls));
   const line = row.cost_usd === null ? text : `+ ${text}`;
   return (
-    <Text as="span" variant="meta" title={line}>
+    // An end cell does not wrap; this line may, so a narrow column keeps it.
+    <Text as="span" variant="meta" title={line} className="whitespace-normal">
       {line}
     </Text>
   );
