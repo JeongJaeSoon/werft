@@ -754,6 +754,8 @@ describe("the address check before a server is stored", () => {
     if (!stored) throw new Error("the server is not stored");
     stored.record.authKind = "mtls";
     stored.bearer = null;
+    // A value in the OAuth slot is not sent for a kind this release does not know.
+    stored.access = "x".repeat(12);
 
     const listed = workspaceMcpServerListSchema.parse(
       await context.service.list(member),

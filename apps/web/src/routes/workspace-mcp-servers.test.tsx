@@ -406,9 +406,7 @@ describe("워크스페이스 MCP 서버", () => {
     await user.type(within(dialog).getByLabelText("이름"), "deepwiki");
     await user.click(within(dialog).getByRole("button", { name: "등록" }));
     expect(
-      await screen.findByText(
-        "deepwiki을(를) 인증 없이 등록하고 도구를 읽었습니다.",
-      ),
+      await screen.findByText("deepwiki을(를) 인증 없이 등록했습니다."),
     ).toBeDefined();
     expect(writes(api.calls).at(-1)?.body).toEqual({
       name: "deepwiki",

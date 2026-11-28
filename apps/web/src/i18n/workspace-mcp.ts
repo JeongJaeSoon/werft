@@ -121,8 +121,7 @@ export const workspaceMcpKo = {
   "workspaceMcp.registered.manual":
     "{name}을(를) 등록했습니다. client 설정에서 client를 넣은 뒤 연결하세요.",
   "workspaceMcp.registered.bearer": "{name}을(를) 등록하고 연결했습니다.",
-  "workspaceMcp.registered.none":
-    "{name}을(를) 인증 없이 등록하고 도구를 읽었습니다.",
+  "workspaceMcp.registered.none": "{name}을(를) 인증 없이 등록했습니다.",
   "workspaceMcp.error.ALREADY_EXISTS":
     "이미 쓰는 이름입니다. 이 워크스페이스의 다른 서버가 쓰고 있습니다.",
   "workspaceMcp.error.MCP_SERVER_QUOTA_EXCEEDED":
@@ -338,8 +337,7 @@ export const workspaceMcpEn: Record<keyof typeof workspaceMcpKo, string> = {
   "workspaceMcp.registered.manual":
     "Registered {name}. Set its client, then connect.",
   "workspaceMcp.registered.bearer": "Registered and connected {name}.",
-  "workspaceMcp.registered.none":
-    "Registered {name} without authentication and read its tools.",
+  "workspaceMcp.registered.none": "Registered {name} without authentication.",
   "workspaceMcp.error.ALREADY_EXISTS":
     "That name is taken by another server of this workspace.",
   "workspaceMcp.error.MCP_SERVER_QUOTA_EXCEEDED":
@@ -560,8 +558,7 @@ export const workspaceMcpJa: Record<keyof typeof workspaceMcpKo, string> = {
   "workspaceMcp.registered.manual":
     "{name} を登録しました。client を設定してから接続してください。",
   "workspaceMcp.registered.bearer": "{name} を登録して接続しました。",
-  "workspaceMcp.registered.none":
-    "{name} を認証なしで登録し、ツールを読み込みました。",
+  "workspaceMcp.registered.none": "{name} を認証なしで登録しました。",
   "workspaceMcp.error.ALREADY_EXISTS":
     "この名前はこのワークスペースの別のサーバーが使っています。",
   "workspaceMcp.error.MCP_SERVER_QUOTA_EXCEEDED":
