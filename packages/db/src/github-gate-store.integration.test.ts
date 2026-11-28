@@ -621,27 +621,40 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
     await opened(mine, first, 7);
     await opened(theirs, other, 8);
     await opened(adopter, adopted, 9, false);
+    // A pull request someone else opened on the session's branch, adopted
+    // for its last push: the branch now has one the platform opened and one
+    // it did not, and each is judged on its own.
+    const last = await pushed(mine);
+    await opened(mine, last, 10, false);
     const store = createPostgresGitHubGateStore(db);
+    const url = (number: number) =>
+      `https://github.com/acme/app/pull/${number}`;
+    const own = { repositoryId: "sample-app", opened: true };
+    const notOpened = { repositoryId: "sample-app", opened: false };
 
-    expect(await store.ownPullRequest(mine, first.id)).toEqual({
-      repositoryId: "sample-app",
-      opened: true,
-    });
+    expect(await store.ownPullRequest(mine, first.id, url(7))).toEqual(own);
     // A later push of the session reuses its branch's pull request.
-    expect(await store.ownPullRequest(mine, later.id.toUpperCase())).toEqual({
-      repositoryId: "sample-app",
-      opened: true,
-    });
+    expect(
+      await store.ownPullRequest(mine, later.id.toUpperCase(), url(7)),
+    ).toEqual(own);
+    expect(await store.ownPullRequest(mine, later.id, url(10))).toEqual(
+      notOpened,
+    );
+    expect(await store.ownPullRequest(mine, last.id, url(10))).toEqual(
+      notOpened,
+    );
+    expect(await store.ownPullRequest(mine, last.id, url(7))).toEqual(own);
     // Recorded for the push request, but someone else opened it on GitHub.
-    expect(await store.ownPullRequest(adopter, adopted.id)).toEqual({
-      repositoryId: "sample-app",
-      opened: false,
-    });
-    // Another session's push request, though it opened one in the same
-    // repository, and a push request that opened none.
-    expect(await store.ownPullRequest(mine, other.id)).toBeNull();
-    expect(await store.ownPullRequest(theirs, first.id)).toBeNull();
-    expect(await store.ownPullRequest(quiet, unopened.id)).toBeNull();
-    expect(await store.ownPullRequest(mine, randomUUID())).toBeNull();
+    expect(await store.ownPullRequest(adopter, adopted.id, url(9))).toEqual(
+      notOpened,
+    );
+    // Another session's push request or pull request, though in the same
+    // repository, a push request that opened none, and a URL never recorded.
+    expect(await store.ownPullRequest(mine, other.id, url(8))).toBeNull();
+    expect(await store.ownPullRequest(mine, first.id, url(8))).toBeNull();
+    expect(await store.ownPullRequest(theirs, first.id, url(7))).toBeNull();
+    expect(await store.ownPullRequest(quiet, unopened.id, url(7))).toBeNull();
+    expect(await store.ownPullRequest(mine, first.id, url(11))).toBeNull();
+    expect(await store.ownPullRequest(mine, randomUUID(), url(7))).toBeNull();
   });
 });

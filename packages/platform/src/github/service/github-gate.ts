@@ -208,16 +208,17 @@ export function createGitHubGate(deps: {
       // the repository lists, then the record of who opened it.
       const attachedMerge = !own && work.purpose === "merge";
       if (attachedMerge) {
+        // Before the switches, as for the session's own repository and the
+        // MCP server; and the lists below drop every repository of an agent
+        // with GitHub off, which is not a repository outside them.
+        if (context.agent !== null && !context.agent.githubEnabled) {
+          return await refuse("github_disabled");
+        }
         if (context.policy.settings === "invalid") {
           return await refuse("github_settings_unsupported");
         }
         const offIn = mergeOffIn(context);
         if (offIn !== null) return await refuse("merge_off", { off_in: offIn });
-        // The lists below drop every repository of an agent with GitHub off;
-        // that is not a repository outside them.
-        if (context.agent !== null && !context.agent.githubEnabled) {
-          return await refuse("github_disabled");
-        }
       }
       if (
         !own &&
@@ -335,9 +336,13 @@ export function createGitHubGate(deps: {
       }
       if (attachedMerge) {
         const recorded =
-          work.pushRequestId === undefined
+          work.pushRequestId === undefined || work.pullRequestUrl === undefined
             ? null
-            : await store.ownPullRequest(context.sessionId, work.pushRequestId);
+            : await store.ownPullRequest(
+                context.sessionId,
+                work.pushRequestId,
+                work.pullRequestUrl,
+              );
         if (
           recorded?.opened !== true ||
           recorded.repositoryId !== repositoryId

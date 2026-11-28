@@ -508,6 +508,8 @@ export function createPullRequestService(deps: {
       fields?: Partial<PullRequestReceiptResult>,
     ) => Promise<never>,
     purpose: "pull_request" | "pull_request_read" | "merge" = "pull_request",
+    // merge only: the pull request merged, which the gate checks.
+    merging?: { url: string },
   ) {
     const fields = { repository_id: source.repositoryId };
     const entry = Object.hasOwn(catalog.repositories, source.repositoryId)
@@ -526,7 +528,9 @@ export function createPullRequestService(deps: {
         sessionId: source.sessionId,
         purpose,
         repositoryId: source.repositoryId,
-        ...(purpose === "merge" ? { pushRequestId: source.id } : {}),
+        ...(merging === undefined
+          ? {}
+          : { pushRequestId: source.id, pullRequestUrl: merging.url }),
         actor: pushReceiptActor(actor),
       });
     } catch (error) {
@@ -1391,6 +1395,7 @@ export function createPullRequestService(deps: {
         source,
         (refusal, extra) => refuse(refusal, { ...fields, ...extra }),
         "merge",
+        pullRequest,
       );
       let before: ForgePullRequestDetail;
       try {

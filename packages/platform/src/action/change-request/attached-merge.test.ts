@@ -267,14 +267,16 @@ function harness(
         gateReceipts.push(receipt);
         return `gate-receipt-${gateReceipts.length}`;
       },
-      ownPullRequest: async (sessionId, pushRequestId) => {
+      ownPullRequest: async (sessionId, pushRequestId, url) => {
         ownPullRequestReads.push(pushRequestId);
         const pushed = sources.find(
           (entry) =>
             entry.id === pushRequestId && entry.sessionId === sessionId,
         );
         return pushed !== undefined &&
-          pullRequests.some((entry) => entry.push_request_id === pushed.id)
+          pullRequests.some(
+            (entry) => entry.push_request_id === pushed.id && entry.url === url,
+          )
           ? {
               repositoryId: pushed.repositoryId,
               opened: !(options.adopted === true && pushed.id === PUSH),

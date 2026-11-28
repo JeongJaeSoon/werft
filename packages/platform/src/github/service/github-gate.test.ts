@@ -47,6 +47,7 @@ import { createGitHubGate } from "./github-gate.ts";
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const OTHER_SESSION = "22222222-2222-4222-8222-222222222222";
+const PR_URL = "https://github.com/acme/docs/pull/7";
 const STARTER = "019a0000-0000-7000-8000-0000000000b1";
 const ALL_ON: GitHubCeiling = {
   workflows: true,
@@ -215,7 +216,13 @@ function harness(
     /** The pull requests recorded per push request: session and repository. */
     pullRequests?: Record<
       string,
-      { sessionId: string; repositoryId: string; opened?: boolean }
+      {
+        sessionId: string;
+        repositoryId: string;
+        opened?: boolean;
+        /** Absent: PR_URL. */
+        url?: string;
+      }
     >;
   } = {},
 ) {
@@ -292,10 +299,11 @@ function harness(
       receipts.push(receipt);
       return `receipt-${receipts.length}`;
     },
-    ownPullRequest: async (sessionId, pushRequestId) => {
+    ownPullRequest: async (sessionId, pushRequestId, url) => {
       ownPullRequestReads.push(pushRequestId);
       const recorded = options.pullRequests?.[pushRequestId];
-      return recorded?.sessionId === sessionId
+      return recorded?.sessionId === sessionId &&
+        (recorded.url ?? PR_URL) === url
         ? {
             repositoryId: recorded.repositoryId,
             opened: recorded.opened ?? true,
@@ -1681,11 +1689,17 @@ describe("another repository than the session's", () => {
         [PUSH]: { sessionId: SESSION, repositoryId: "docs" },
         [OTHER_PUSH]: { sessionId: OTHER_SESSION, repositoryId: "docs" },
       };
-      const merge = (pushRequestId?: string, repositoryId = "docs") =>
+      const merge = (
+        pushRequestId?: string,
+        repositoryId = "docs",
+        pullRequestUrl = PR_URL,
+      ) =>
         ({
           purpose: "merge",
           repositoryId,
-          ...(pushRequestId === undefined ? {} : { pushRequestId }),
+          ...(pushRequestId === undefined
+            ? {}
+            : { pushRequestId, pullRequestUrl }),
         }) as const;
       const offIn = (promise: Promise<unknown>) =>
         promise.then(
@@ -1754,6 +1768,14 @@ describe("another repository than the session's", () => {
           merge("66666666-6666-4666-8666-666666666666"),
           merge("55555555-5555-4555-8555-555555555555"),
           merge("77777777-7777-4777-8777-777777777777"),
+          // Another pull request than the one recorded for the push request,
+          // and none named.
+          merge(PUSH, "docs", "https://github.com/acme/docs/pull/8"),
+          {
+            purpose: "merge",
+            repositoryId: "docs",
+            pushRequestId: PUSH,
+          } as const,
         ]) {
           expect((await refused(grant(work))).reason).toBe(
             "not_own_pull_request",
@@ -1805,21 +1827,23 @@ describe("another repository than the session's", () => {
         }
       });
 
-      test("with the agent's GitHub off it is github_disabled, not repository_not_allowed", async () => {
-        const { grant, author, ownPullRequestReads } = harness({
-          catalog: ATTACHED,
-          repositoryId: null,
-          github: mergeOn,
-          ceiling: both,
-          attached: ["docs"],
-          githubEnabled: false,
-          pullRequests: recorded,
-        });
-        expect((await refused(grant(merge(PUSH)))).reason).toBe(
-          "github_disabled",
-        );
-        expect(ownPullRequestReads).toEqual([]);
-        expect(author?.issued).toEqual([]);
+      test("with the agent's GitHub off it is github_disabled, before the switches and the lists", async () => {
+        for (const ceiling of [both, GITHUB_CEILING_NONE]) {
+          const { grant, author, ownPullRequestReads } = harness({
+            catalog: ATTACHED,
+            repositoryId: null,
+            github: mergeOn,
+            ceiling,
+            attached: ["docs"],
+            githubEnabled: false,
+            pullRequests: recorded,
+          });
+          expect((await refused(grant(merge(PUSH)))).reason).toBe(
+            "github_disabled",
+          );
+          expect(ownPullRequestReads).toEqual([]);
+          expect(author?.issued).toEqual([]);
+        }
       });
 
       test("a repository the session may not work on is repository_not_allowed with both switches on", async () => {
