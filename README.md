@@ -1,6 +1,6 @@
 # Werft
 
-Werft는 AI 에이전트를 자기 인프라에 두고 Slack·웹·API로 부르는 플랫폼이다. 에이전트를 정의하고, 누가 무엇을 할 수 있는지 정하고, 스킬과 MCP 서버를 붙인다. 에이전트의 작업은 세션마다 격리된 worker에서 엔진(Claude Agent SDK, Codex app-server)으로 실행하고, HTTP API·이벤트·승인·제어·checkpoint 복구로 다룬다. provider key와 저장소·object store credential은 worker에 직접 전달하지 않지만, 살아 있는 attempt는 제한된 egress token으로 허용된 경로를 호출할 수 있다.
+Werft는 회사가 AI 에이전트를 만들고 자기 인프라에서 돌리는 플랫폼이다. 에이전트를 정의하고, 누가 무엇을 할 수 있는지 정하고, 스킬과 MCP 서버를 붙여 Slack·웹·API로 부른다. 에이전트의 작업은 세션 런타임이 맡는다: 세션마다 격리된 worker에서 엔진(Claude Agent SDK, Codex app-server)으로 실행하고, HTTP API·이벤트·승인·제어·checkpoint 복구로 다룬다. provider key와 저장소·object store credential은 worker에 직접 전달하지 않지만, 살아 있는 attempt는 제한된 egress token으로 허용된 경로를 호출할 수 있다.
 
 ## 문서
 
