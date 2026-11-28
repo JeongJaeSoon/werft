@@ -27,7 +27,7 @@ export function unifiedLineDiff(before: string, after: string): string | null {
   if ((midA.length + 1) * (midB.length + 1) > MAX_CELLS) return null;
 
   const ops: Op[] = a.slice(0, head).map((line) => ({ kind: " ", line }));
-  ops.push(...middleOps(midA, midB));
+  for (const op of middleOps(midA, midB)) ops.push(op);
   for (const line of a.slice(a.length - tail)) ops.push({ kind: " ", line });
   return hunks(ops);
 }
@@ -74,6 +74,10 @@ function hunks(ops: Op[]): string {
   const changed = ops.flatMap((op, at) => (op.kind === " " ? [] : [at]));
   const out: string[] = [];
   let index = 0;
+  // Hunk starts only move forward, so the line numbers before them are counted once.
+  let counted = 0;
+  let oldStart = 1;
+  let newStart = 1;
   while (index < changed.length) {
     const start = Math.max(0, (changed[index] as number) - CONTEXT);
     let end = (changed[index] as number) + CONTEXT + 1;
@@ -86,9 +90,8 @@ function hunks(ops: Op[]): string {
     }
     end = Math.min(end, ops.length);
     index++;
-    let oldStart = 1;
-    let newStart = 1;
-    for (const op of ops.slice(0, start)) {
+    for (; counted < start; counted++) {
+      const op = ops[counted] as Op;
       if (op.kind !== "+") oldStart++;
       if (op.kind !== "-") newStart++;
     }
@@ -97,8 +100,8 @@ function hunks(ops: Op[]): string {
     const newCount = body.filter((op) => op.kind !== "-").length;
     out.push(
       `@@ -${oldCount === 0 ? oldStart - 1 : oldStart},${oldCount} +${newCount === 0 ? newStart - 1 : newStart},${newCount} @@`,
-      ...body.map((op) => `${op.kind}${op.line}`),
     );
+    for (const op of body) out.push(`${op.kind}${op.line}`);
   }
   return out.join("\n");
 }

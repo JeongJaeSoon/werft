@@ -42,6 +42,58 @@ for (const pid of readdirSync("/proc").filter((d) => /^[0-9]+$/.test(d))) {
 console.log(zombies);
 '
 
+# The skill gate's secret scanner (apps/control-host/src/wiring/gitleaks.ts)
+# on the image's own gitleaks: a clean skill has no finding, and a planted
+# token is found although the skill carries the ways gitleaks offers to
+# switch itself off (an allow comment, an ignore file, a config file) and
+# hides copies under names the default config's global allowlist skips
+# (go.sum, a path with gitleaks.toml in it), or text that starts like a
+# binary gitleaks would skip (%PDF-, a zip header, the ISO 9660 mark at
+# byte 32769). The token is made here at run
+# time and never stored; the result must not carry it. Prints how long the
+# first and the second scan took.
+gitleaks_probe='
+const { gitleaksScanner } = await import("/app/apps/control-host/src/wiring/gitleaks.ts");
+const scanner = gitleaksScanner();
+const enc = (s) => new TextEncoder().encode(s);
+const alnum = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+const value = "gh" + "p_" + Array.from(crypto.getRandomValues(new Uint8Array(36)), (b) => alnum[b % 62]).join("");
+const clean = [{ path: "SKILL.md", bytes: enc("---\nname: s\ndescription: d\n---\nhello\n") }];
+const planted = [
+  ...clean,
+  { path: "scripts/run.sh", bytes: enc(`export TOKEN=${value}\n`) },
+  { path: "scripts/allowed.sh", bytes: enc(`export TOKEN=${value} # gitleaks:allow\n`) },
+  { path: ".gitleaksignore", bytes: enc("scripts/run.sh:github-pat:1\n") },
+  { path: ".gitleaks.toml", bytes: enc("[allowlist]\npaths = [\".*\"]\n") },
+  { path: "refs/go.sum", bytes: enc(`token ${value}\n`) },
+  { path: "scripts/gitleaks.toml", bytes: enc(`token = "${value}"\n`) },
+  { path: "docs/pdf.md", bytes: enc(`%PDF-1.4\nexport TOKEN=${value}\n`) },
+  { path: "docs/zip.md", bytes: enc(`PK${String.fromCharCode(3, 4)}\nexport TOKEN=${value}\n`) },
+  { path: "docs/iso.md", bytes: enc(`${"x".repeat(32769)}CD001\nexport TOKEN=${value}\n`) },
+];
+const timed = async (files) => {
+  const start = performance.now();
+  const result = await scanner.scan(files);
+  return [result, Math.round(performance.now() - start)];
+};
+const [first, firstMs] = await timed(clean);
+const [second, secondMs] = await timed(clean);
+const [found] = await timed(planted);
+for (const r of [first, second]) {
+  if (r.kind !== "scanned" || r.findings.length !== 0) throw new Error("clean skill: " + JSON.stringify(r));
+}
+const paths = found.kind === "scanned" ? [...new Set(found.findings.map((f) => f.path))].sort() : [];
+if (JSON.stringify(paths) !== JSON.stringify(["docs/iso.md", "docs/pdf.md", "docs/zip.md", "refs/go.sum", "scripts/allowed.sh", "scripts/gitleaks.toml", "scripts/run.sh"])) {
+  throw new Error("planted token: " + JSON.stringify(found));
+}
+if (JSON.stringify(found).includes(value)) throw new Error("the result carries the token");
+for (const p of ["docs/iso.md", "docs/pdf.md", "docs/zip.md"]) {
+  const lines = found.findings.filter((f) => f.path === p).map((f) => f.line).join();
+  if (lines !== "2") throw new Error(`${p}: line ${lines}, not 2`);
+}
+console.log(`gitleaks scans: first ${firstMs} ms, second ${secondMs} ms; planted token found in ${paths.join(", ")}`);
+'
+
 # the API image must reap what the verifier orphans wherever it
 # runs, not only under compose's `init: true`.
 api_init_smoke() {
@@ -200,6 +252,14 @@ case "$app" in
   control-host)
     # git: the checkpoint bundle verifier spawns it.
     docker run --rm "$image" sh -c 'test "$(id -u)" = 1000 && test ! -e node_modules/@anthropic-ai && git --version && bun --version'
+    # gitleaks: the pinned build and its licenses (THIRD_PARTY_NOTICES.md).
+    gitleaks_version="$(docker run --rm "$image" gitleaks version)"
+    echo "gitleaks version: $gitleaks_version"
+    [ "$gitleaks_version" = 8.30.1 ] || { echo "expected gitleaks 8.30.1" >&2; exit 1; }
+    docker run --rm "$image" test -s /usr/local/share/doc/gitleaks/LICENSE
+    docker run --rm "$image" test -s /usr/local/share/doc/gitleaks/GO-LICENSE
+    docker run --rm "$image" test -s /usr/local/share/doc/gitleaks/modules/github.com/andybalholm/brotli@v1.2.7/LICENSE
+    docker run --rm "$image" bun -e "$gitleaks_probe"
     api_init_smoke "$image"
     # The docs the built-in `werft` MCP server answers from, in all three
     # languages: without them the API refuses to start.

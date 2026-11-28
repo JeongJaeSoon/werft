@@ -222,6 +222,7 @@ describe("M1 shadow records over the real policy (a1/S3)", () => {
     expect(read.recent).toHaveLength(5);
     for (const item of read.recent) {
       expect(Object.keys(item).sort()).toEqual([
+        "answer",
         "channel_id",
         "decision",
         "grade",

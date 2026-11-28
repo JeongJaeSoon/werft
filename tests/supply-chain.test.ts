@@ -537,6 +537,8 @@ describe("images.yml supply-chain", () => {
       expect([
         "matrix.app != 'none'",
         "always() && matrix.app != 'none'",
+        // The layer cache to write, which a pull request never asks.
+        "matrix.app != 'none' && github.event_name != 'pull_request'",
       ]).toContain((step as { if?: string }).if ?? "");
     }
     const verdict = job?.steps?.find((step) =>
