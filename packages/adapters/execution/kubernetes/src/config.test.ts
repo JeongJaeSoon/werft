@@ -24,6 +24,7 @@ describe("kubernetesConfigFromEnv", () => {
       nodeSelector: {},
       objectStore: { bucket: "sessions", region: "ap-northeast-1" },
       idleTimeoutSeconds: 1800,
+      maxTurnToolCalls: 500,
       requestTimeoutMs: 30_000,
       stopTimeoutSeconds: 120,
       storageClass: null,
@@ -147,6 +148,21 @@ describe("kubernetesConfigFromEnv", () => {
     expect(() =>
       kubernetesConfigFromEnv({ ...BASE, ...extra }, noFile),
     ).toThrow(message);
+  });
+
+  test("reads the turn tool call limit, refusing it outside 1 to 100000", () => {
+    expect(
+      kubernetesConfigFromEnv(
+        { ...BASE, WORKER_MAX_TURN_TOOL_CALLS: "5" },
+        () => "agents",
+      ).maxTurnToolCalls,
+    ).toBe(5);
+    expect(() =>
+      kubernetesConfigFromEnv(
+        { ...BASE, WORKER_MAX_TURN_TOOL_CALLS: "0" },
+        () => "agents",
+      ),
+    ).toThrow("WORKER_MAX_TURN_TOOL_CALLS must be an integer from 1 to 100000");
   });
 
   test("reads the worker idle lifetime, refusing it outside 60 to 7200", () => {

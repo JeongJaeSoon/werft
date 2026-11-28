@@ -5,6 +5,7 @@ import {
   DEFAULT_WORKSPACE_QUOTA_MB,
   MIN_WORKSPACE_QUOTA_MB,
   workerIdleTimeoutSecondsOf,
+  workerMaxTurnToolCallsOf,
 } from "@werft-ai/contracts/execution";
 import { integerSetting } from "@werft-ai/contracts/settings";
 import { checkGatewayUrl, parseEgressProxyUrl } from "@werft-ai/platform";
@@ -95,6 +96,11 @@ export type LocalDockerBackendConfig = {
    * for input before it ends. Absent, the worker keeps its own default.
    */
   idleTimeoutSeconds?: number;
+  /**
+   * Handed to the worker as `WORKER_MAX_TURN_TOOL_CALLS`: the tool calls one
+   * turn may make. Absent, the worker keeps its own default.
+   */
+  maxTurnToolCalls?: number;
   tmpfsSizeBytes: number;
   /** `uid:gid`; must not be root. */
   user: string;
@@ -240,6 +246,7 @@ export function localDockerConfigFromEnv(
             min: 1,
           }) * 1_000,
     idleTimeoutSeconds: workerIdleTimeoutSecondsOf(environment),
+    maxTurnToolCalls: workerMaxTurnToolCallsOf(environment),
     stopTimeoutSeconds: stopGrace(
       integerSetting(environment, "EXECUTION_DOCKER_STOP_TIMEOUT_SEC", {
         min: 1,

@@ -87,6 +87,12 @@ spec:
             {{- end }}
             - name: WORKER_IDLE_TIMEOUT_SEC
               value: {{ $idle | quote }}
+            {{- $toolCalls := toString .Values.worker.maxTurnToolCalls }}
+            {{- if not (and (regexMatch "^[0-9]+$" $toolCalls) (ge (atoi $toolCalls) 1) (le (atoi $toolCalls) 100000)) }}
+            {{- fail (printf "worker.maxTurnToolCalls must be an integer from 1 to 100000 (got %s)" $toolCalls) }}
+            {{- end }}
+            - name: WORKER_MAX_TURN_TOOL_CALLS
+              value: {{ $toolCalls | quote }}
             - name: EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB
               value: {{ .Values.worker.ephemeralStorageMb | quote }}
             - name: SCHEDULER_NODE_CAPACITY_CHECK
