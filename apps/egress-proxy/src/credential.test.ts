@@ -1393,6 +1393,39 @@ describe("startCredentialProxy", () => {
     expect(report?.usage).toMatchObject({ input_tokens: 9, output_tokens: 3 });
   });
 
+  test("a conversation call to a model endpoint off the operator's lists is refused before its name is looked up: its grant carries no private mark", async () => {
+    const looked: string[] = [];
+    const auth = authorizer(() =>
+      Response.json({
+        conversation_call_id: "call-1",
+        // As the API grants a conversation call on a connection registered
+        // as private: unmarked, so the operator's lists hold it.
+        upstream: {
+          url: "http://model.internal:4000",
+          headers: [["x-api-key", PROVIDER_KEY]],
+        },
+        request_limits: {
+          path: "/v1/messages",
+          model: "m-call",
+          max_tokens: 64,
+          max_request_bytes: 80,
+        },
+      }),
+    );
+    const server = proxy(auth.url, 1, {
+      resolve: async (host) => {
+        looked.push(host);
+        return ["10.0.0.5"];
+      },
+    });
+    const response = await messages(server.port, {
+      path: "/provider/v1/messages",
+      body: '{"model":"m-call","max_tokens":64,"messages":[]}',
+    });
+    expect(response.status).toBe(403);
+    expect(looked).toEqual([]);
+  });
+
   test("a conversation call the provider answered with an error is reported unbilled before its caller hears", async () => {
     const up = upstream(() =>
       Response.json(
