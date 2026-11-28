@@ -53,7 +53,7 @@ const upload = (name: string, body?: string) => ({
 function setup(options: { ownIds?: boolean } = {}) {
   const rows: ExtensionBundle[] = [];
   const attachments: ExtensionAttachment[] = [];
-  const unavailable = new Map<string, "hidden" | "withdrawn">();
+  const unavailable = new Map<string, "ok" | "hidden" | "withdrawn">();
   const calls: Parameters<ExtensionBundleStore["recordAttachment"]>[0][] = [];
   const archives: Parameters<ExtensionBundleStore["archive"]>[0][] = [];
   const registers: Parameters<ExtensionBundleStore["register"]>[0][] = [];
@@ -119,7 +119,7 @@ function setup(options: { ownIds?: boolean } = {}) {
       return { outcome: "recorded", receiptId: input.receiptId };
     },
     listAttachments: async () => [...attachments],
-    unavailableSkills: async () => new Map(unavailable),
+    repositorySkills: async () => new Map(unavailable),
     async archive(input) {
       archives.push(input);
       return outcomes.archive ?? { outcome: "not_found" };
@@ -651,5 +651,36 @@ describe("skills of a registered repository that are off or withdrawn", () => {
         }),
       ),
     ).toBe("BAD_REQUEST:repository_skill_workspace");
+  });
+});
+
+describe("a skill of a registered repository on the skill screens", () => {
+  test("counts no version as waiting for review: the gate holds one back, not a person", async () => {
+    const { service, unavailable } = setup();
+    const web = caller("web");
+    await service.register(web, upload("research"));
+    await service.register(web, upload("mine"));
+    unavailable.set("research", "ok");
+    const listed = await service.list(web);
+    expect(listed.items.map((item) => [item.name, item.pending_count])).toEqual(
+      [
+        ["mine", 1],
+        ["research", 0],
+      ],
+    );
+  });
+
+  test("is not approved by a person and not stepped back: both say whose skill it is", async () => {
+    const { service, outcomes } = setup();
+    const web = caller("web");
+    const { version } = await service.register(web, upload("research"));
+    outcomes.review = { outcome: "repository_skill" };
+    expect(
+      await refusal(service.review(web, version.id, { decision: "approved" })),
+    ).toBe("BAD_REQUEST:repository_skill");
+    outcomes.revert = { outcome: "repository_skill" };
+    expect(await refusal(service.revert(web, "research"))).toBe(
+      "BAD_REQUEST:repository_skill",
+    );
   });
 });

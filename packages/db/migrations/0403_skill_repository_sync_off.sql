@@ -1,0 +1,1 @@
+ALTER TABLE "skill_git_sources" ADD CONSTRAINT "skill_git_sources_repository_sync_check" CHECK ("skill_git_sources"."repository_source_id" IS NULL OR NOT "skill_git_sources"."sync_enabled");

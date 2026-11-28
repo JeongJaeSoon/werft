@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   checkSkillRepositoryResponseSchema,
   putSkillRepositoryRefResponseSchema,
+  putSkillRepositorySkillSwitchResponseSchema,
   registerSkillRepositoryResponseSchema,
   removeSkillRepositoryResponseSchema,
   type SkillRepositoryDetail,
@@ -15,11 +16,14 @@ import {
 } from "@werft-ai/db/pool";
 import {
   SessionServiceError,
+  SKILL_CHECK_LEASE_MS,
   type SkillRepositoryService,
 } from "@werft-ai/platform";
 import { errorOf } from "../../../testing/api-error.ts";
+import { REQUEST_DEADLINE_MS } from "../../deadline.ts";
 import { recordRouteErrors } from "../../route-error-coverage.ts";
 import {
+  checkBeyondRequest,
   listingBeyondRequest,
   registerSkillRepositoryRoutes,
 } from "./skill-repositories.ts";
@@ -74,6 +78,8 @@ const DETAIL: SkillRepositoryDetail = {
       name_shared: false,
       present: true,
       enabled: false,
+      current_version_id: null,
+      last_check: null,
       tree_sha: "b".repeat(40),
       file_count: 2,
       size_bytes: 120,
@@ -303,6 +309,107 @@ describe("workspace skill repositories", () => {
   });
 });
 
+describe("a skill's switch", () => {
+  const SKILL = DETAIL.skills[0]?.id ?? "";
+  const path = `${one}/skills/${SKILL}/switch`;
+
+  test("turns on with what its check found, and off with no check", async () => {
+    const seen: unknown[] = [];
+    const setSwitch: SkillRepositoryService["setSwitch"] = async (
+      _caller,
+      id,
+      skillId,
+      enabled,
+    ) => {
+      seen.push([id, skillId, enabled]);
+      const [skill] = DETAIL.skills;
+      if (!skill) throw new Error("no skill");
+      return {
+        repository: DETAIL.repository,
+        skills: [
+          enabled
+            ? {
+                ...skill,
+                enabled: true,
+                status: "failed",
+                last_check: {
+                  at: "2026-11-28T00:00:00.000Z",
+                  trigger: { kind: "enable", user_id: ADMIN },
+                  commit: "a".repeat(40),
+                  result: "blocked",
+                  version_id: null,
+                  issues: [],
+                  blocks: [
+                    {
+                      rule: "secret",
+                      paths: ["skills/pdf/a.md"],
+                      samples: ["generic-api-key"],
+                    },
+                  ],
+                  warnings: [],
+                  notices: [],
+                },
+              }
+            : skill,
+        ],
+        receipt_id: ID,
+        check: enabled ? "checked" : null,
+      };
+    };
+    const on = await send({ setSwitch }, "PUT", path, { enabled: true });
+    expect(on.status).toBe(200);
+    const answer = putSkillRepositorySkillSwitchResponseSchema.parse(
+      await on.json(),
+    );
+    expect(answer.check).toBe("checked");
+    expect(answer.skills[0]?.last_check?.blocks[0]?.rule).toBe("secret");
+    const off = await send({ setSwitch }, "PUT", path, { enabled: false });
+    expect(off.status).toBe(200);
+    expect(
+      putSkillRepositorySkillSwitchResponseSchema.parse(await off.json()).check,
+    ).toBeNull();
+    expect(seen).toEqual([
+      [ID, SKILL, true],
+      [ID, SKILL, false],
+    ]);
+  });
+
+  test("its refusals", async () => {
+    let reached = 0;
+    const setSwitch: SkillRepositoryService["setSwitch"] = async () => {
+      reached += 1;
+      throw new Error("not reached");
+    };
+    for (const body of [{}, { enabled: "yes" }, { enabled: null }]) {
+      expect((await send({ setSwitch }, "PUT", path, body)).status).toBe(400);
+    }
+    expect(
+      (
+        await send({ setSwitch }, "PUT", `${one}/skills/not-a-uuid/switch`, {
+          enabled: true,
+        })
+      ).status,
+    ).toBe(404);
+    expect(reached).toBe(0);
+    for (const [code, reason, expected] of [
+      ["BAD_REQUEST", "skill_listing_refused", 400],
+      ["BAD_REQUEST", "skill_missing", 400],
+      ["BAD_REQUEST", "repository_removed", 400],
+      ["FORBIDDEN", "web_session_required", 403],
+      ["NOT_FOUND", undefined, 404],
+      ["ALREADY_EXISTS", "skill_name_conflict", 409],
+    ] as const) {
+      expect(
+        await status(
+          send({ setSwitch: fail(code, reason) }, "PUT", path, {
+            enabled: true,
+          }),
+        ),
+      ).toEqual([expected, code, reason]);
+    }
+  });
+});
+
 describe("a listing past its request's deadline", () => {
   test("reads the repository and its App, records and lets go under deadlines of their own", async () => {
     const left: Record<string, number> = {};
@@ -319,6 +426,9 @@ describe("a listing past its request's deadline", () => {
       finish: noting("finish", null),
       begin: noting("begin", { outcome: "not_found" as const }),
       setRef: noting("setRef", { outcome: "not_found" as const }),
+      skills: noting("skills", []),
+      extend: noting("extend", true),
+      recordSkillCheck: noting("recordSkillCheck", true),
     };
     const wired = listingBeyondRequest(store, noting("apps", []));
     // As the pool sees a request that already answered 503.
@@ -329,6 +439,16 @@ describe("a listing past its request's deadline", () => {
         await wired.store.begin(WORKSPACE, ID, manual, 1);
         left["manual"] = left["begin"] ?? Number.NaN;
         await wired.store.begin(WORKSPACE, ID, { ...manual, kind: "ref" }, 1);
+        left["ref"] = left["begin"] ?? Number.NaN;
+        await wired.store.begin(
+          WORKSPACE,
+          ID,
+          { ...manual, kind: "enable" },
+          1,
+        );
+        await wired.store.skills(WORKSPACE, ID);
+        await wired.store.extend(WORKSPACE, ID, 1, "t");
+        await wired.store.recordSkillCheck({} as never);
         await wired.store.find(WORKSPACE, ID);
         await wired.apps();
         await wired.store.record({} as never);
@@ -338,8 +458,34 @@ describe("a listing past its request's deadline", () => {
     // A change, and a check someone asks for, start only within the request.
     expect(left["setRef"]).toBeLessThanOrEqual(0);
     expect(left["manual"]).toBeLessThanOrEqual(0);
-    for (const name of ["begin", "find", "apps", "record", "finish"]) {
+    for (const name of [
+      "ref",
+      // The check a switch turned on owes.
+      "begin",
+      "find",
+      "apps",
+      "record",
+      "finish",
+      "skills",
+      "extend",
+      "recordSkillCheck",
+    ]) {
       expect(left[name]).toBeGreaterThan(0);
     }
+  });
+
+  test("registers a skill's version under a deadline as long as its check holds the repository", async () => {
+    let left = Number.NaN;
+    const bundles = checkBeyondRequest({
+      register: async () => {
+        left = currentDeadline()?.remainingMs() ?? Number.NaN;
+        return { outcome: "stale" };
+      },
+    });
+    await runWithDeadline(new RequestDeadline(performance.now() - 1), () =>
+      bundles.register({} as never),
+    );
+    expect(left).toBeGreaterThan(REQUEST_DEADLINE_MS);
+    expect(left).toBeLessThanOrEqual(SKILL_CHECK_LEASE_MS);
   });
 });

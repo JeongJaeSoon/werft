@@ -311,6 +311,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "DELETE /v1/workspace/skill-repositories/{id}",
     "POST /v1/workspace/skill-repositories/{id}/check",
     "PUT /v1/workspace/skill-repositories/{id}/ref",
+    "PUT /v1/workspace/skill-repositories/{id}/skills/{skill_id}/switch",
   ],
   "routes/musterrolle/env-variables.test.ts": [
     "GET /v1/workspace/variables",

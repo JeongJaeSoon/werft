@@ -3,13 +3,17 @@ import { generateKeyPairSync, randomUUID } from "node:crypto";
 import { scopesForRole } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
+  agents,
+  createPostgresExtensionBundleStore,
   createPostgresSkillRepositoryStore,
+  extensionBundles,
   memberships,
   receipts,
   skillRepositories,
   users,
   workspaces,
 } from "@werft-ai/db";
+import { fixtureRelease } from "@werft-ai/db/testing/spec-pins";
 import {
   createGitHubAppDirectory,
   createGitHubSkillReader,
@@ -17,8 +21,13 @@ import {
 import {
   callerFor,
   createAuthorizationPolicy,
+  createExtensionBundleService,
   createSkillRepositoryService,
+  EXTENSION_MANAGER_ROLES,
+  type ExtensionBundleStore,
   type GitHubAppCredential,
+  plainTextHostExtractor,
+  type SecretFinding,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -26,9 +35,11 @@ import {
   startFakeGitHub,
   type TempDatabase,
 } from "@werft-ai/testkit";
+import { createMemoryCheckpointObjectStore } from "@werft-ai/testkit/checkpoint-objects";
 import { asc, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { skillGateProcess } from "../wiring/skill-gate.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 
@@ -52,6 +63,13 @@ integration("skill repositories against fake GitHub", () => {
   let github: FakeGitHub;
   const connections = new Map<string, GitHubAppCredential>();
   let service: ReturnType<typeof createSkillRepositoryService>;
+  let bundleStore: ExtensionBundleStore;
+  /** The secret scan: the image's gitleaks is not here. The rules run as they do in the API. */
+  const gate = {
+    findings: [] as SecretFinding[],
+    /** Runs once the rules passed a version, before its write. */
+    during: null as (() => Promise<void>) | null,
+  };
   let seq = 0;
 
   beforeAll(async () => {
@@ -67,6 +85,7 @@ integration("skill repositories against fake GitHub", () => {
     });
     await github.createRepository("acme", "home", { "README.md": "x\n" });
     const directory = createGitHubAppDirectory({ retryAfterBaseMs: 1 });
+    bundleStore = createPostgresExtensionBundleStore(db);
     service = createSkillRepositoryService({
       authorization: createAuthorizationPolicy({}),
       store: createPostgresSkillRepositoryStore(db),
@@ -76,6 +95,21 @@ integration("skill repositories against fake GitHub", () => {
           (one) => one.workspaceId === workspaceId,
         ),
       installations: (app) => directory.installations(app),
+      bundles: createExtensionBundleService({
+        store: bundleStore,
+        objects: createMemoryCheckpointObjectStore(),
+        hosts: plainTextHostExtractor,
+        gate: {
+          runner: skillGateProcess(),
+          secrets: {
+            async scan() {
+              await gate.during?.();
+              return { kind: "scanned", findings: gate.findings };
+            },
+          },
+          allowedHosts: () => new Set(),
+        },
+      }),
     });
   }, 60_000);
 
@@ -533,5 +567,203 @@ integration("skill repositories against fake GitHub", () => {
     });
     const same = await service.setRef(caller, repository.id, "v1");
     expect([same.receipt_id, same.check]).toEqual([null, null]);
+  });
+
+  /** A workspace that registered a repository of one skill, skills/pdf. */
+  async function following() {
+    const ws = await workspace();
+    const repo = await publicRepository({
+      LICENSE: "Apache\n",
+      "skills/pdf/SKILL.md": skillMd("pdf"),
+    });
+    const { repository, skills } = await service.register(ws.caller, {
+      url: repo.url,
+    });
+    const [pdf] = skills;
+    if (!pdf) throw new Error("no skill listed");
+    const turn = (enabled: boolean) =>
+      service.setSwitch(ws.caller, repository.id, pdf.id, enabled);
+    const versions = () =>
+      db
+        .select({
+          id: extensionBundles.id,
+          version: extensionBundles.version,
+          review: extensionBundles.review,
+          current: extensionBundles.current,
+          registeredBy: extensionBundles.registeredBy,
+          reviewedBy: extensionBundles.reviewedBy,
+        })
+        .from(extensionBundles)
+        .where(eq(extensionBundles.workspaceId, ws.workspaceId))
+        .orderBy(asc(extensionBundles.version));
+    return { ...ws, repo, id: repository.id, pdf, turn, versions };
+  }
+
+  test("a skill switched on is judged in the gate's own process, becomes its current version and is offered to a new session; off, it is hidden", async () => {
+    const { workspaceId, userId, caller, repo, turn, versions } =
+      await following();
+    const on = await turn(true);
+    expect(on.check).toBe("checked");
+    expect(on.receipt_id).not.toBeNull();
+    const [shown] = on.skills;
+    expect(shown).toMatchObject({
+      enabled: true,
+      status: "on",
+      name_owner: "github",
+      current_version_id: expect.any(String),
+      last_check: {
+        trigger: { kind: "enable", user_id: userId },
+        commit: await repo.head(),
+        result: "passed",
+        blocks: [],
+      },
+    });
+    const versionId = shown?.current_version_id ?? "";
+    expect(await versions()).toEqual([
+      {
+        id: versionId,
+        version: 1,
+        review: "approved",
+        current: true,
+        registeredBy: userId,
+        reviewedBy: null,
+      },
+    ]);
+
+    // What a new session of an agent that was given the skill reads.
+    await fixtureRelease(db, workspaceId);
+    const [agent] = await db
+      .select({ id: agents.id })
+      .from(agents)
+      .where(eq(agents.workspaceId, workspaceId));
+    if (!agent) throw new Error("no fixture agent");
+    const attached = await bundleStore.recordAttachment({
+      receiptId: randomUUID(),
+      workspaceId,
+      bundleId: versionId,
+      scope: "agent",
+      agentId: agent.id,
+      mode: "optional",
+      kind: "attach",
+      principal: caller,
+      managerRoles: EXTENSION_MANAGER_ROLES,
+    });
+    expect(attached.outcome).toBe("recorded");
+    const offered = async () =>
+      (
+        await bundleStore.listAttachments({ workspaceId, agentId: agent.id })
+      ).map((row) => [row.name, row.availability]);
+    expect(await offered()).toEqual([["pdf", "ok"]]);
+
+    const off = await turn(false);
+    expect(off.check).toBeNull();
+    expect(off.skills[0]).toMatchObject({
+      enabled: false,
+      status: "off",
+      current_version_id: versionId,
+    });
+    expect(await offered()).toEqual([["pdf", "hidden"]]);
+    expect((await turn(true)).skills[0]).toMatchObject({ status: "on" });
+    expect(await offered()).toEqual([["pdf", "ok"]]);
+    // On again checked the same content: no second version.
+    expect(await versions()).toHaveLength(1);
+  });
+
+  test("an update the gate or the scanner refuses leaves the version before it current; the next clean commit becomes current with no person behind it", async () => {
+    const { caller, repo, id, turn, versions } = await following();
+    const first = (await turn(true)).skills[0]?.current_version_id;
+    expect(first).toEqual(expect.any(String));
+
+    // A bidi override, which the rules block.
+    await repo.write({
+      "skills/pdf/SKILL.md": skillMd(
+        "pdf",
+        `Read ${String.fromCodePoint(0x202e)}it.`,
+      ),
+    });
+    const hidden = await service.checkNow(caller, id);
+    expect(hidden.outcome).toBe("checked");
+    expect(hidden.skills[0]).toMatchObject({
+      status: "on",
+      current_version_id: first,
+      last_check: {
+        trigger: { kind: "manual" },
+        result: "blocked",
+        version_id: null,
+        blocks: [{ rule: "hidden_override", paths: ["skills/pdf/SKILL.md"] }],
+      },
+    });
+
+    gate.findings = [
+      { rule: "github-pat", path: "skills/pdf/SKILL.md", line: 5 },
+    ];
+    try {
+      await repo.write({ "skills/pdf/SKILL.md": skillMd("pdf", "Changed.") });
+      expect(
+        (await service.checkNow(caller, id)).skills[0]?.last_check,
+      ).toMatchObject({
+        result: "blocked",
+        blocks: [{ rule: "secret", samples: ["github-pat"] }],
+      });
+      expect(await versions()).toHaveLength(1);
+    } finally {
+      gate.findings = [];
+    }
+
+    const passed = await service.checkNow(caller, id);
+    expect(passed.skills[0]?.last_check).toMatchObject({ result: "passed" });
+    expect(passed.skills[0]?.current_version_id).not.toBe(first);
+    expect(await versions()).toMatchObject([
+      { id: first, version: 1, review: "approved", current: false },
+      {
+        version: 2,
+        review: "approved",
+        current: true,
+        registeredBy: null,
+        reviewedBy: null,
+      },
+    ]);
+  });
+
+  test("the switch turned off, or the repository removed, while the gate judges: no version is written", async () => {
+    for (const change of ["off", "remove"] as const) {
+      const { caller, id, turn, versions } = await following();
+      let reached = false;
+      gate.during = async () => {
+        gate.during = null;
+        reached = true;
+        if (change === "off") await turn(false);
+        else await service.remove(caller, id);
+      };
+      const on = await turn(true);
+      expect(reached).toBe(true);
+      expect(on.check).toBe("checked");
+      expect(await versions()).toEqual([]);
+      // A removal leaves the switch as it was; a restore turns it off.
+      expect(on.skills[0]).toMatchObject({
+        enabled: change === "remove",
+        current_version_id: null,
+        last_check: null,
+      });
+    }
+  });
+
+  test("two managers switching the same skill on at once make one version", async () => {
+    const { turn, versions } = await following();
+    const answers = await Promise.all([turn(true), turn(true)]);
+    expect(answers.map((one) => one.receipt_id !== null).sort()).toEqual([
+      false,
+      true,
+    ]);
+    // The second saw the switch on; its answer may precede the first's check.
+    const settled = await turn(true);
+    expect(settled.receipt_id).toBeNull();
+    for (let tries = 0; tries < 250; tries += 1) {
+      if ((await versions()).length > 0) break;
+      await Bun.sleep(20);
+    }
+    expect(await versions()).toMatchObject([
+      { version: 1, review: "approved", current: true },
+    ]);
   });
 });

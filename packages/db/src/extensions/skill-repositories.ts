@@ -1,13 +1,17 @@
 import { randomUUID } from "node:crypto";
 import {
+  SKILL_REPOSITORY_CHECK_RESULT_VALUES,
   SKILL_REPOSITORY_SYNC_RESULT_VALUES,
   SKILL_REPOSITORY_TRIGGER_VALUES,
+  type SkillRepositoryCheckResult,
   type SkillRepositorySyncResult,
   type SkillRepositoryTriggerKind,
 } from "@werft-ai/contracts";
 import type {
+  SkillGateFindingRecord,
   SkillListingEntry,
   SkillRepository,
+  SkillRepositorySkillCheck,
   SkillRepositoryStore,
   SkillRepositorySync,
   SkillRepositoryTrigger,
@@ -18,6 +22,7 @@ import {
   eq,
   inArray,
   isNull,
+  lt,
   notInArray,
   or,
   sql,
@@ -27,10 +32,15 @@ import { lockedRole } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
 import {
   extensionBundles,
+  skillGitSources,
   skillRepositories,
   skillRepositorySkills,
 } from "../schema.ts";
 import { writeSucceededReceipt } from "../succeeded-receipt.ts";
+import { recordCheckInTx } from "./skill-git-sources.ts";
+
+/** A 40-character commit never moves, so the daily pass leaves it alone. */
+const COMMIT_REF = "^[0-9a-f]{40}$";
 
 type Row = typeof skillRepositories.$inferSelect;
 
@@ -43,6 +53,18 @@ const triggerJson = (trigger: SkillRepositoryTrigger) => ({
   kind: trigger.kind,
   user_id: trigger.userId,
 });
+
+/**
+ * Which kept trigger a new one may replace: a person's check is not turned
+ * into the daily pass's.
+ */
+const RANK: Record<SkillRepositoryTriggerKind, number> = {
+  daily: 0,
+  register: 1,
+  manual: 1,
+  ref: 1,
+  enable: 1,
+};
 
 /** A kind a later host wrote reads as a person's check. */
 function triggerOf(value: unknown): SkillRepositoryTrigger {
@@ -68,6 +90,58 @@ const issuesOf = (value: unknown): SkillListingEntry["issues"] =>
         };
       })
     : [];
+
+const texts = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((one) => typeof one === "string") : [];
+
+const findingsOf = (value: unknown): SkillGateFindingRecord[] =>
+  Array.isArray(value)
+    ? value.flatMap((entry) => {
+        const one = record(entry);
+        return typeof one.rule === "string"
+          ? [
+              {
+                rule: one.rule,
+                paths: texts(one.paths),
+                samples: texts(one.samples),
+              },
+            ]
+          : [];
+      })
+    : [];
+
+export const skillCheckJson = (check: SkillRepositorySkillCheck) => ({
+  at: check.at.toISOString(),
+  trigger: triggerJson(check.trigger),
+  commit: check.commit,
+  result: check.result,
+  version_id: check.versionId,
+  issues: check.issues,
+  blocks: check.blocks,
+  warnings: check.warnings,
+  notices: check.notices,
+});
+
+/** A result a later host wrote reads as the gate not answering: never a pass. */
+function skillCheckOf(value: unknown): SkillRepositorySkillCheck | null {
+  if (value === null || value === undefined) return null;
+  const json = record(value);
+  return {
+    at: new Date(String(json.at)),
+    trigger: triggerOf(json.trigger),
+    commit: typeof json.commit === "string" ? json.commit : null,
+    result: (
+      SKILL_REPOSITORY_CHECK_RESULT_VALUES as readonly unknown[]
+    ).includes(json.result)
+      ? (json.result as SkillRepositoryCheckResult)
+      : "gate_unavailable",
+    versionId: typeof json.version_id === "string" ? json.version_id : null,
+    issues: issuesOf(json.issues),
+    blocks: findingsOf(json.blocks),
+    warnings: findingsOf(json.warnings),
+    notices: findingsOf(json.notices),
+  };
+}
 
 const syncJson = (sync: SkillRepositorySync) => ({
   at: sync.at.toISOString(),
@@ -155,9 +229,12 @@ async function withCount(tx: Database, row: Row): Promise<SkillRepository> {
  */
 async function writeListing(
   tx: Database,
-  repositoryId: string,
+  repository: Pick<Row, "id" | "workspaceId" | "repositoryId" | "repository">,
   entries: readonly SkillListingEntry[],
+  sync: Pick<SkillRepositorySync, "at" | "trigger" | "commit">,
 ): Promise<void> {
+  const repositoryId = repository.id;
+  await switchOffRenamed(tx, repository, entries, sync);
   if (entries.length > 0) {
     await tx
       .insert(skillRepositorySkills)
@@ -212,6 +289,99 @@ async function writeListing(
     );
 }
 
+/**
+ * A directory switched on that has no version yet takes the name its
+ * SKILL.md gives when its first version is written. Whoever switched it on
+ * saw the name it had then: when a listing reads another, the switch goes
+ * off, and it is switched on again under the name it shows. One with a
+ * version keeps its name, and its check refuses the renamed content.
+ */
+async function switchOffRenamed(
+  tx: Database,
+  repository: Pick<Row, "id" | "workspaceId" | "repositoryId" | "repository">,
+  entries: readonly SkillListingEntry[],
+  sync: Pick<SkillRepositorySync, "at" | "trigger" | "commit">,
+): Promise<void> {
+  const on = await tx
+    .select({
+      id: skillRepositorySkills.id,
+      path: skillRepositorySkills.path,
+      name: skillRepositorySkills.name,
+    })
+    .from(skillRepositorySkills)
+    .where(
+      and(
+        eq(skillRepositorySkills.skillRepositoryId, repository.id),
+        eq(skillRepositorySkills.enabled, true),
+      ),
+    )
+    .for("update");
+  const nameAt = new Map(entries.map((entry) => [entry.path, entry.name]));
+  const renamed = on.flatMap((skill) => {
+    const now = nameAt.get(skill.path);
+    return typeof now === "string" && skill.name !== null && now !== skill.name
+      ? [{ ...skill, name: skill.name, now }]
+      : [];
+  });
+  if (renamed.length === 0) return;
+  const versioned = new Set(
+    (
+      await tx
+        .select({ path: skillGitSources.path })
+        .from(skillGitSources)
+        .where(eq(skillGitSources.repositorySourceId, repository.id))
+    ).map((row) => row.path),
+  );
+  for (const skill of renamed) {
+    if (versioned.has(skill.path)) continue;
+    await tx
+      .update(skillRepositorySkills)
+      .set({
+        ...SWITCH_OFF,
+        lastGate: skillCheckJson({
+          at: sync.at,
+          trigger: sync.trigger,
+          commit: sync.commit,
+          result: "rejected",
+          versionId: null,
+          issues: [
+            {
+              path: "SKILL.md",
+              code: "name_changed",
+              message: `It was switched on as "${skill.name}" and now names "${skill.now}"; switch it on again under that name.`,
+            },
+          ],
+          blocks: [],
+          warnings: [],
+          notices: [],
+        }),
+        updatedAt: DB_NOW,
+      })
+      .where(eq(skillRepositorySkills.id, skill.id));
+    await writeSucceededReceipt(
+      tx,
+      { ownerId: repository.workspaceId },
+      {
+        operation: "set_skill_repository_switch",
+        resource: { kind: "workspace", id: repository.workspaceId },
+        workspaceId: repository.workspaceId,
+        result: {
+          action: "off",
+          by: "sync",
+          reason: "name_changed",
+          skill_repository_id: repository.id,
+          repository_id: repository.repositoryId,
+          repository: repository.repository,
+          skill_id: skill.id,
+          path: skill.path,
+          name: skill.name,
+          renamed_to: skill.now,
+        },
+      },
+    );
+  }
+}
+
 /** The actor's live role, or why the write is refused. */
 async function managerOf(
   tx: Database,
@@ -239,10 +409,33 @@ async function locked(
   return row;
 }
 
+/** The repository row under a shared lock: what a switch and a version's write read it under. */
+async function lockedShared(
+  tx: Database,
+  workspaceId: string,
+  id: string,
+): Promise<Row | undefined> {
+  const [row] = await tx
+    .select()
+    .from(skillRepositories)
+    .where(ofWorkspace(workspaceId, id))
+    .limit(1)
+    .for("share");
+  return row;
+}
+
 const LEASE_FREE = {
   checkingUntil: null,
   checkingToken: null,
   checkAgain: null,
+} as const;
+
+/** A switch off: no grant, so a check that read it on writes nothing more. */
+export const SWITCH_OFF = {
+  enabled: false,
+  enabledBy: null,
+  enabledAt: null,
+  enableGrantId: null,
 } as const;
 
 export function createPostgresSkillRepositoryStore(
@@ -326,6 +519,35 @@ export function createPostgresSkillRepositoryStore(
                 ),
             ]);
       const ownerOf = new Map(owners.map((row) => [row.name, row.source]));
+      // The skills these directories are, each under the name its first
+      // version took, and their current versions.
+      const own = await db
+        .select({ name: skillGitSources.name, path: skillGitSources.path })
+        .from(skillGitSources)
+        .where(
+          and(
+            eq(skillGitSources.workspaceId, workspaceId),
+            eq(skillGitSources.repositorySourceId, id),
+          ),
+        );
+      const current =
+        own.length === 0
+          ? []
+          : await db
+              .select({ id: extensionBundles.id, name: extensionBundles.name })
+              .from(extensionBundles)
+              .where(
+                and(
+                  eq(extensionBundles.workspaceId, workspaceId),
+                  inArray(
+                    extensionBundles.name,
+                    own.map((row) => row.name),
+                  ),
+                  eq(extensionBundles.current, true),
+                ),
+              );
+      const skillAt = new Map(own.map((row) => [row.path, row.name]));
+      const currentOf = new Map(current.map((row) => [row.name, row.id]));
       return rows.map(({ skill }) => ({
         id: skill.id,
         path: skill.path,
@@ -339,6 +561,10 @@ export function createPostgresSkillRepositoryStore(
         issues: issuesOf(skill.listingIssues),
         present: skill.present,
         enabled: skill.enabled,
+        grantId: skill.enableGrantId,
+        skillName: skillAt.get(skill.path) ?? null,
+        currentVersionId: currentOf.get(skillAt.get(skill.path) ?? "") ?? null,
+        lastCheck: skillCheckOf(skill.lastGate),
         nameOwner:
           skill.name === null || !ownerOf.has(skill.name)
             ? null
@@ -411,13 +637,7 @@ export function createPostgresSkillRepositoryStore(
           // A repository comes back with every switch off.
           await tx
             .update(skillRepositorySkills)
-            .set({
-              enabled: false,
-              enabledBy: null,
-              enabledAt: null,
-              enableGrantId: null,
-              updatedAt: DB_NOW,
-            })
+            .set({ ...SWITCH_OFF, updatedAt: DB_NOW })
             .where(eq(skillRepositorySkills.skillRepositoryId, existing.id));
         } else {
           [row] = await tx
@@ -432,7 +652,11 @@ export function createPostgresSkillRepositoryStore(
             .returning();
         }
         if (!row) throw new Error("skill repository vanished in its tx");
-        await writeListing(tx, row.id, input.read.entries);
+        await writeListing(tx, row, input.read.entries, {
+          at: input.at,
+          trigger: { kind: "register", userId: manager.userId },
+          commit: input.read.commit,
+        });
         await writeSucceededReceipt(tx, input.principal, {
           id: input.receiptId,
           operation: "register_skill_repository",
@@ -547,6 +771,7 @@ export function createPostgresSkillRepositoryStore(
           .select({
             removedAt: skillRepositories.removedAt,
             busy: sql<boolean>`${skillRepositories.checkingUntil} IS NOT NULL AND ${skillRepositories.checkingUntil} > clock_timestamp()`,
+            again: skillRepositories.checkAgain,
           })
           .from(skillRepositories)
           .where(ofWorkspace(workspaceId, id))
@@ -556,10 +781,16 @@ export function createPostgresSkillRepositoryStore(
           return { outcome: "not_found" as const };
         }
         if (row.busy) {
-          await tx
-            .update(skillRepositories)
-            .set({ checkAgain: triggerJson(trigger) })
-            .where(ofWorkspace(workspaceId, id));
+          const kept =
+            row.again === null || row.again === undefined
+              ? null
+              : triggerOf(row.again);
+          if (kept === null || RANK[trigger.kind] >= RANK[kept.kind]) {
+            await tx
+              .update(skillRepositories)
+              .set({ checkAgain: triggerJson(trigger) })
+              .where(ofWorkspace(workspaceId, id));
+          }
           return { outcome: "queued" as const };
         }
         // A trigger kept for a listing whose replica died stays, so the new
@@ -619,9 +850,241 @@ export function createPostgresSkillRepositoryStore(
           })
           .where(eq(skillRepositories.id, row.id));
         if (input.read !== null) {
-          await writeListing(tx, row.id, input.read.entries);
+          await writeListing(tx, row, input.read.entries, input.sync);
         }
         return true;
+      });
+    },
+
+    setSwitch(input) {
+      return db.transaction(async (tx) => {
+        const manager = await managerOf(tx, input);
+        if ("outcome" in manager) return manager;
+        // The repository row shared, then the directory's row: the order a
+        // version's write takes them in, so the two never cross. A removal,
+        // a restore, a ref change and a listing's write wait behind the
+        // shared lock.
+        const repository = await lockedShared(tx, input.workspaceId, input.id);
+        if (!repository) return { outcome: "not_found" };
+        if (repository.removedAt !== null) return { outcome: "removed" };
+        const [skill] = await tx
+          .select()
+          .from(skillRepositorySkills)
+          .where(
+            and(
+              eq(skillRepositorySkills.skillRepositoryId, repository.id),
+              eq(skillRepositorySkills.id, input.skillId),
+            ),
+          )
+          .limit(1)
+          .for("update");
+        if (!skill) return { outcome: "not_found" };
+        if (skill.enabled === input.enabled) return { outcome: "unchanged" };
+        if (input.enabled) {
+          if (!skill.present) return { outcome: "missing" };
+          const name = skill.name;
+          if (name === null || issuesOf(skill.listingIssues).length > 0) {
+            return { outcome: "unavailable" };
+          }
+          // Shown before any file is read. The version's write decides again
+          // under the name's lock, which this does not hold.
+          const [source] = await tx
+            .select({
+              repositorySourceId: skillGitSources.repositorySourceId,
+              path: skillGitSources.path,
+            })
+            .from(skillGitSources)
+            .where(
+              and(
+                eq(skillGitSources.workspaceId, input.workspaceId),
+                eq(skillGitSources.name, name),
+              ),
+            )
+            .limit(1);
+          if (source) {
+            if (
+              source.repositorySourceId !== repository.id ||
+              source.path !== skill.path
+            ) {
+              return { outcome: "name_conflict", owner: "github" };
+            }
+          } else {
+            const [held] = await tx
+              .select({ source: extensionBundles.source })
+              .from(extensionBundles)
+              .where(
+                and(
+                  eq(extensionBundles.workspaceId, input.workspaceId),
+                  eq(extensionBundles.name, name),
+                ),
+              )
+              .limit(1);
+            if (held) {
+              return {
+                outcome: "name_conflict",
+                owner: held.source === "github" ? "github" : "upload",
+              };
+            }
+          }
+        }
+        await tx
+          .update(skillRepositorySkills)
+          .set(
+            input.enabled
+              ? {
+                  enabled: true,
+                  enabledBy: manager.userId,
+                  enabledAt: DB_NOW,
+                  // The receipt is the grant: a check that read the switch
+                  // under another writes nothing.
+                  enableGrantId: input.receiptId,
+                  lastGate: null,
+                  updatedAt: DB_NOW,
+                }
+              : { ...SWITCH_OFF, updatedAt: DB_NOW },
+          )
+          .where(eq(skillRepositorySkills.id, skill.id));
+        await writeSucceededReceipt(tx, input.principal, {
+          id: input.receiptId,
+          operation: "set_skill_repository_switch",
+          resource: { kind: "workspace", id: input.workspaceId },
+          workspaceId: input.workspaceId,
+          result: {
+            action: input.enabled ? "on" : "off",
+            skill_repository_id: repository.id,
+            repository_id: repository.repositoryId,
+            repository: repository.repository,
+            generation: repository.generation,
+            skill_id: skill.id,
+            path: skill.path,
+            name: skill.name,
+            ...(input.enabled
+              ? {
+                  ref: repository.ref,
+                  commit: repository.lastCommit,
+                  tree_sha: skill.treeSha,
+                  license: {
+                    repository: repository.license,
+                    skill: skill.license,
+                  },
+                }
+              : {}),
+          },
+        });
+        return { outcome: "updated", receiptId: input.receiptId };
+      });
+    },
+
+    recordSkillCheck(input) {
+      return db.transaction(async (tx) => {
+        // The skill's source row first, as a version's write takes it before
+        // the repository's and the directory's.
+        const [listed] = await tx
+          .select({ path: skillRepositorySkills.path })
+          .from(skillRepositorySkills)
+          .where(
+            and(
+              eq(skillRepositorySkills.skillRepositoryId, input.id),
+              eq(skillRepositorySkills.id, input.skillId),
+            ),
+          )
+          .limit(1);
+        if (!listed) return false;
+        const [source] = await tx
+          .select({ name: skillGitSources.name })
+          .from(skillGitSources)
+          .where(
+            and(
+              eq(skillGitSources.workspaceId, input.workspaceId),
+              eq(skillGitSources.repositorySourceId, input.id),
+              eq(skillGitSources.path, listed.path),
+            ),
+          )
+          .limit(1)
+          .for("update");
+        const repository = await lockedShared(tx, input.workspaceId, input.id);
+        if (
+          !repository ||
+          repository.removedAt !== null ||
+          repository.checkingToken !== input.token ||
+          repository.generation !== input.generation
+        ) {
+          return false;
+        }
+        const written = await tx
+          .update(skillRepositorySkills)
+          .set({ lastGate: skillCheckJson(input.check), updatedAt: DB_NOW })
+          .where(
+            and(
+              eq(skillRepositorySkills.skillRepositoryId, repository.id),
+              eq(skillRepositorySkills.id, input.skillId),
+              eq(skillRepositorySkills.enabled, true),
+              eq(skillRepositorySkills.enableGrantId, input.grantId),
+            ),
+          )
+          .returning({ id: skillRepositorySkills.id });
+        if (written.length === 0) return false;
+        if (source && input.sourceCheck !== null) {
+          await recordCheckInTx(tx, input.workspaceId, source.name, {
+            at: input.check.at,
+            trigger: input.sourceCheck.trigger,
+            commit: input.check.commit,
+            result: input.sourceCheck.result,
+            versionId: null,
+            issues: input.sourceCheck.issues,
+            autoApproval: null,
+          });
+        }
+        return true;
+      });
+    },
+
+    async extend(workspaceId, id, leaseMs, token) {
+      const held = await db
+        .update(skillRepositories)
+        .set({ checkingUntil: fromDbNow(leaseMs) })
+        .where(
+          and(
+            ofWorkspace(workspaceId, id),
+            eq(skillRepositories.checkingToken, token),
+          ),
+        )
+        .returning({ id: skillRepositories.id });
+      return held.length > 0;
+    },
+
+    async due(before, limit, claimMs) {
+      // Claimed as a skill's source is: the last check moves to `claimMs`
+      // past `before`, so another replica's pass leaves it and one that died
+      // before checking it lets it go then; a recorded check overwrites it.
+      const claimed = new Date(before.getTime() + claimMs);
+      return db.transaction(async (tx) => {
+        const rows = await tx
+          .select({
+            workspaceId: skillRepositories.workspaceId,
+            id: skillRepositories.id,
+          })
+          .from(skillRepositories)
+          .where(
+            and(
+              isNull(skillRepositories.removedAt),
+              sql`${skillRepositories.ref} !~ ${COMMIT_REF}`,
+              or(
+                isNull(skillRepositories.lastCheckedAt),
+                lt(skillRepositories.lastCheckedAt, before),
+              ),
+            ),
+          )
+          .orderBy(sql`${skillRepositories.lastCheckedAt} ASC NULLS FIRST`)
+          .limit(limit)
+          .for("update", { skipLocked: true });
+        for (const row of rows) {
+          await tx
+            .update(skillRepositories)
+            .set({ lastCheckedAt: claimed })
+            .where(eq(skillRepositories.id, row.id));
+        }
+        return rows;
       });
     },
   };

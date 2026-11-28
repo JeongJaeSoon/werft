@@ -139,6 +139,8 @@ function fakeReader() {
     onResolve: null as (() => void) | null,
     calls: [] as string[],
     asked: [] as number[],
+    /** What a skill directory reads as; unset: one SKILL.md of its name. */
+    read: null as ((commit: string, path: string) => SkillTree) | null,
   };
   const check = (what: string, installation: number) => {
     state.calls.push(what);
@@ -177,8 +179,23 @@ function fakeReader() {
         }),
       );
     },
-    async read() {
-      throw new Error("a repository listing reads no skill directory");
+    async read(_app, installation, _repository, commit, path) {
+      check(`read ${commit[0]} ${path}`, installation);
+      return (
+        state.read?.(commit, path) ?? {
+          kind: "files",
+          files: [
+            {
+              path: "SKILL.md",
+              kind: "file",
+              mode: 0o644,
+              bytes: new TextEncoder().encode(
+                skillFile(path.split("/").at(-1) ?? ""),
+              ),
+            },
+          ],
+        }
+      );
     },
     async isBranch() {
       throw new Error("a repository listing asks for no branch");
@@ -187,10 +204,26 @@ function fakeReader() {
   return { reader, state };
 }
 
+type StoredSkill = Awaited<ReturnType<SkillRepositoryStore["skills"]>>[number];
+type SkillTree = Awaited<ReturnType<GitHubSkillReader["read"]>>;
+type Bundles = Parameters<typeof createSkillRepositoryService>[0]["bundles"];
+type BundleInput = Parameters<Bundles["register"]>[0];
+type BundleResult = Awaited<ReturnType<Bundles["register"]>>;
+
 type Row = SkillRepository & {
   holder: string | null;
   kept: SkillRepositoryTrigger | null;
-  skills: Array<SkillListingEntry & { id: string; present: boolean }>;
+  skills: Array<
+    SkillListingEntry & {
+      id: string;
+      present: boolean;
+      enabled?: boolean;
+      grantId?: string | null;
+      skillName?: string | null;
+      currentVersionId?: string | null;
+      lastCheck?: StoredSkill["lastCheck"];
+    }
+  >;
 };
 
 function memoryStore() {
@@ -198,6 +231,13 @@ function memoryStore() {
   const receipts: Array<{ operation: string; id: string }> = [];
   /** Names another skill of the workspace holds. */
   const owners = new Map<string, "upload" | "github">();
+  const sourceChecks: Array<
+    Parameters<SkillRepositoryStore["recordSkillCheck"]>[0]["sourceCheck"]
+  > = [];
+  const extended: string[] = [];
+  /** What the next daily pass is handed. */
+  const due: Array<{ workspaceId: string; id: string }> = [];
+  const dueAsked: Array<{ before: Date; limit: number; claimMs: number }> = [];
   const view = (row: Row): SkillRepository => {
     const { holder: _holder, kept: _kept, skills, ...repository } = row;
     return {
@@ -210,6 +250,7 @@ function memoryStore() {
     for (const entry of entries) {
       const at = row.skills.findIndex((skill) => skill.path === entry.path);
       const next = {
+        ...row.skills[at],
         ...entry,
         id: at === -1 ? crypto.randomUUID() : (row.skills[at]?.id ?? ""),
         present: true,
@@ -234,8 +275,15 @@ function memoryStore() {
       return (row?.skills ?? [])
         .map((skill) => ({
           ...skill,
-          enabled: false,
-          nameOwner: (skill.name && owners.get(skill.name)) || null,
+          enabled: skill.enabled ?? false,
+          grantId: skill.grantId ?? null,
+          skillName: skill.skillName ?? null,
+          currentVersionId: skill.currentVersionId ?? null,
+          lastCheck: skill.lastCheck ?? null,
+          nameOwner:
+            skill.skillName != null && skill.skillName === skill.name
+              ? ("github" as const)
+              : (skill.name && owners.get(skill.name)) || null,
           nameShared: active.some((one) =>
             one.skills.some(
               (other) =>
@@ -374,8 +422,71 @@ function memoryStore() {
       }
       return true;
     },
+    async setSwitch(input) {
+      const row = rows.get(input.id);
+      if (!row) return { outcome: "not_found" };
+      if (row.removedAt !== null) return { outcome: "removed" };
+      const skill = row.skills.find((one) => one.id === input.skillId);
+      if (!skill) return { outcome: "not_found" };
+      if ((skill.enabled ?? false) === input.enabled) {
+        return { outcome: "unchanged" };
+      }
+      if (input.enabled) {
+        if (!skill.present) return { outcome: "missing" };
+        if (skill.name === null || skill.issues.length > 0) {
+          return { outcome: "unavailable" };
+        }
+        const owner = owners.get(skill.name);
+        if (owner !== undefined && skill.skillName == null) {
+          return { outcome: "name_conflict", owner };
+        }
+      }
+      skill.enabled = input.enabled;
+      skill.grantId = input.enabled ? input.receiptId : null;
+      if (input.enabled) skill.lastCheck = null;
+      receipts.push({
+        operation: "set_skill_repository_switch",
+        id: input.receiptId,
+      });
+      return { outcome: "updated", receiptId: input.receiptId };
+    },
+    async recordSkillCheck(input) {
+      const row = rows.get(input.id);
+      const skill = row?.skills.find((one) => one.id === input.skillId);
+      if (
+        !row ||
+        !skill ||
+        row.removedAt !== null ||
+        row.holder !== input.token ||
+        row.generation !== input.generation ||
+        skill.enabled !== true ||
+        skill.grantId !== input.grantId
+      ) {
+        return false;
+      }
+      skill.lastCheck = input.check;
+      sourceChecks.push(input.sourceCheck);
+      return true;
+    },
+    async extend(_workspaceId, id, _leaseMs, token) {
+      extended.push(id);
+      return rows.get(id)?.holder === token;
+    },
+    async due(before, limit, claimMs) {
+      dueAsked.push({ before, limit, claimMs });
+      return due.splice(0);
+    },
   };
-  return { store, rows, receipts, owners };
+  return {
+    store,
+    rows,
+    receipts,
+    owners,
+    sourceChecks,
+    extended,
+    due,
+    dueAsked,
+  };
 }
 
 function setup(
@@ -390,6 +501,34 @@ function setup(
   const { reader, state } = fakeReader();
   const memory = memoryStore();
   const listedFor: number[] = [];
+  const registered: BundleInput[] = [];
+  const failures: Array<{ error: unknown; fields: Record<string, unknown> }> =
+    [];
+  const bundle = {
+    /** What the version's write answers; unset: it passes, as the store writes a pass. */
+    answer: null as ((input: BundleInput) => BundleResult) | null,
+  };
+  const passed = (input: BundleInput): BundleResult => {
+    const basis = input.git?.repository;
+    const skill = memory.rows
+      .get(basis?.skillRepositoryId ?? "")
+      ?.skills.find((one) => one.id === basis?.skillId);
+    if (!input.git || !basis || !skill) throw new Error("not a check");
+    skill.skillName = input.slug;
+    skill.currentVersionId = `version:${input.slug}`;
+    skill.lastCheck = {
+      at: input.git.checkedAt,
+      trigger: basis.trigger,
+      commit: input.git.location.commit,
+      result: "passed",
+      versionId: skill.currentVersionId,
+      issues: [],
+      blocks: [],
+      warnings: [],
+      notices: [],
+    };
+    return { outcome: "registered", bundle: {} as never, receiptId: "r" };
+  };
   const service = createSkillRepositoryService({
     authorization: createAuthorizationPolicy({}),
     store: memory.store,
@@ -405,9 +544,24 @@ function setup(
         ]
       );
     },
+    bundles: {
+      async register(input) {
+        registered.push(input);
+        return (bundle.answer ?? passed)(input);
+      },
+    },
+    failed: (error, fields) => failures.push({ error, fields }),
     now: () => new Date("2026-11-28T00:00:00.000Z"),
   });
-  return { service, state, listedFor, ...memory };
+  return {
+    service,
+    state,
+    listedFor,
+    registered,
+    failures,
+    bundle,
+    ...memory,
+  };
 }
 
 const refusal = async (run: Promise<unknown>) => {
@@ -958,6 +1112,465 @@ describe("what a listed skill shows", () => {
       ],
       ["skills/pdf", "off", null, true, []],
       ["skills/taken", "conflict", "upload", false, []],
+    ]);
+  });
+});
+
+describe("switching a skill on and off", () => {
+  async function listed(files?: Record<string, string>) {
+    const all = setup();
+    if (files) all.state.trees[COMMIT_A] = treeOf(files);
+    const { repository, skills } = await all.service.register(caller(), {
+      url: URL,
+    });
+    const pdf = skills.find((skill) => skill.path === "skills/pdf");
+    if (!pdf) throw new Error("no skills/pdf");
+    all.state.calls.length = 0;
+    const on = (skillId = pdf.id) =>
+      all.service.setSwitch(caller(), repository.id, skillId, true);
+    const off = (skillId = pdf.id) =>
+      all.service.setSwitch(caller(), repository.id, skillId, false);
+    return { ...all, id: repository.id, pdf, skills, on, off };
+  }
+
+  test("on checks it at once: its files at the listing's commit are handed to the gate's write, and the answer shows it on", async () => {
+    const { state, registered, receipts, id, pdf, on } = await listed({
+      LICENSE: "x",
+      "skills/pdf/SKILL.md": skillFile("pdf"),
+    });
+    const answer = await on();
+    expect(answer.check).toBe("checked");
+    expect(answer.receipt_id).toEqual(expect.any(String));
+    expect(receipts.at(-1)).toEqual({
+      operation: "set_skill_repository_switch",
+      id: answer.receipt_id ?? "",
+    });
+    expect(answer.repository.last_sync).toMatchObject({
+      trigger: { kind: "enable", user_id: USER },
+      result: "listed",
+    });
+    expect(answer.skills).toMatchObject([
+      {
+        id: pdf.id,
+        enabled: true,
+        status: "on",
+        name_owner: "github",
+        current_version_id: "version:pdf",
+        last_check: {
+          trigger: { kind: "enable", user_id: USER },
+          commit: COMMIT_A,
+          result: "passed",
+          version_id: "version:pdf",
+        },
+      },
+    ]);
+    expect(registered).toHaveLength(1);
+    expect(registered[0]).toMatchObject({
+      principal: { ownerId: WORKSPACE },
+      slug: "pdf",
+      label: "pdf",
+      source: "github",
+      skill: true,
+      git: {
+        location: {
+          repositoryId: 7,
+          path: "skills/pdf",
+          ref: "main",
+          commit: COMMIT_A,
+        },
+        // The skill's first version: a registration, by who switched it on.
+        trigger: { kind: "register", deliveryId: null, userId: USER },
+        repository: {
+          skillRepositoryId: id,
+          skillId: pdf.id,
+          generation: 1,
+          leaseToken: expect.any(String),
+          grantId: answer.receipt_id,
+          trigger: { kind: "enable", userId: USER },
+          treeSha: pdf.tree_sha,
+          rootFiles: ["LICENSE"],
+        },
+      },
+    });
+    expect(registered[0]?.files.map((file) => file.path)).toEqual([
+      "skills/pdf/SKILL.md",
+    ]);
+    // The directory is read after the listing, and the repository asked once
+    // more whether it is still public and whose it is.
+    expect(state.calls.slice(-2)).toEqual([
+      "read a skills/pdf",
+      "repositoryById",
+    ]);
+  });
+
+  test("off runs no check and keeps the version; the same switch again writes nothing; on again is a resume", async () => {
+    const { registered, receipts, pdf, on, off } = await listed();
+    await on();
+    const written = receipts.length;
+    expect((await on()).receipt_id).toBeNull();
+    expect(registered).toHaveLength(1);
+    const answer = await off();
+    expect(answer.check).toBeNull();
+    expect(answer.skills).toMatchObject([
+      {
+        id: pdf.id,
+        enabled: false,
+        status: "off",
+        current_version_id: "version:pdf",
+      },
+    ]);
+    expect(receipts).toHaveLength(written + 1);
+    expect(await off()).toMatchObject({ receipt_id: null, check: null });
+    expect(registered).toHaveLength(1);
+    await on();
+    expect(registered[1]?.git?.trigger).toEqual({
+      kind: "resume",
+      deliveryId: null,
+      userId: USER,
+    });
+  });
+
+  test("only the one switched on is checked then; a check of the repository checks every skill switched on, each under a lease it extended", async () => {
+    const { service, registered, extended, id, skills, on } = await listed({
+      "skills/docx/SKILL.md": skillFile("docx"),
+      "skills/pdf/SKILL.md": skillFile("pdf"),
+      "skills/xlsx/SKILL.md": skillFile("xlsx"),
+    });
+    const docx = skills.find((skill) => skill.path === "skills/docx");
+    if (!docx) throw new Error("no skills/docx");
+    await on();
+    await on(docx.id);
+    expect(registered.map((input) => input.slug)).toEqual(["pdf", "docx"]);
+    registered.length = 0;
+    extended.length = 0;
+    const checked = await service.checkNow(caller(), id);
+    expect(checked.outcome).toBe("checked");
+    expect(registered.map((input) => input.slug)).toEqual(["docx", "pdf"]);
+    expect(extended).toEqual([id, id]);
+    // A person's check of a skill that has its version.
+    expect(registered[0]?.git?.trigger).toMatchObject({ kind: "manual" });
+    expect(checked.skills.map((skill) => [skill.path, skill.status])).toEqual([
+      ["skills/docx", "on"],
+      ["skills/pdf", "on"],
+      ["skills/xlsx", "off"],
+    ]);
+  });
+
+  test("is refused for an unknown directory, one the listing refuses, a name held elsewhere, a removed repository and a member", async () => {
+    const { service, owners, registered, id, skills, pdf, on } = await listed({
+      "skills/pdf/SKILL.md": skillFile("pdf"),
+      "skills/taken/SKILL.md": skillFile("taken"),
+      "skills/linked/SKILL.md": skillFile("linked"),
+      "skills/linked/data.md": "../x",
+    });
+    const at = (path: string) =>
+      skills.find((skill) => skill.path === path)?.id ?? "";
+    owners.set("taken", "upload");
+    expect(await refusal(on(crypto.randomUUID()))).toEqual([
+      "NOT_FOUND",
+      undefined,
+    ]);
+    expect(await refusal(on(at("skills/taken")))).toEqual([
+      "ALREADY_EXISTS",
+      "skill_name_conflict",
+    ]);
+    expect(
+      (await refusal(service.setSwitch(caller("member"), id, pdf.id, true)))[0],
+    ).toBe("FORBIDDEN");
+    expect(
+      await refusal(
+        service.setSwitch(caller("owner", "api"), id, pdf.id, true),
+      ),
+    ).toEqual(["FORBIDDEN", "web_session_required"]);
+    await service.remove(caller(), id);
+    expect(await refusal(on())).toEqual(["BAD_REQUEST", "repository_removed"]);
+    expect(registered).toEqual([]);
+  });
+
+  test("a directory the listing refuses is not switched on", async () => {
+    const all = setup();
+    all.state.trees[COMMIT_A] = treeOf(
+      {
+        "skills/linked/SKILL.md": skillFile("linked"),
+        "skills/linked/data.md": "../x",
+      },
+      { "skills/linked/data.md": "120000" },
+    );
+    const { repository, skills } = await all.service.register(caller(), {
+      url: URL,
+    });
+    expect(
+      await refusal(
+        all.service.setSwitch(
+          caller(),
+          repository.id,
+          skills[0]?.id ?? "",
+          true,
+        ),
+      ),
+    ).toEqual(["BAD_REQUEST", "skill_listing_refused"]);
+  });
+});
+
+/** A skill directory read in full: one SKILL.md of that name. */
+const filesOf = (name: string): SkillTree => ({
+  kind: "files",
+  files: [
+    {
+      path: "SKILL.md",
+      kind: "file",
+      mode: 0o644,
+      bytes: new TextEncoder().encode(skillFile(name)),
+    },
+  ],
+});
+
+describe("what a check of a skill switched on keeps when it wrote no version", () => {
+  async function switching() {
+    const all = setup();
+    const { repository, skills } = await all.service.register(caller(), {
+      url: URL,
+    });
+    const [pdf] = skills;
+    if (!pdf) throw new Error("no skill");
+    const on = async () => {
+      const answer = await all.service.setSwitch(
+        caller(),
+        repository.id,
+        pdf.id,
+        true,
+      );
+      return { answer, skill: answer.skills[0] };
+    };
+    return { ...all, id: repository.id, on };
+  }
+
+  test("what the gate blocked: by rule and file, and on its source row as a refusal an older host reads", async () => {
+    const { bundle, sourceChecks, on } = await switching();
+    const blocks = [
+      { rule: "secret", paths: ["skills/pdf/a.md"], samples: ["aws"] },
+    ];
+    bundle.answer = () => ({ outcome: "blocked", blocks });
+    const { answer, skill } = await on();
+    expect(answer.check).toBe("checked");
+    expect(skill).toMatchObject({
+      enabled: true,
+      status: "failed",
+      current_version_id: null,
+      last_check: { result: "blocked", version_id: null, blocks },
+    });
+    expect(sourceChecks).toEqual([
+      {
+        trigger: { kind: "register", deliveryId: null, userId: USER },
+        result: "rejected",
+        issues: [
+          {
+            path: "a.md",
+            code: "secret",
+            message: "The repository's automatic check refused this file.",
+          },
+        ],
+      },
+    ]);
+  });
+
+  test("a gate with no answer: kept as that, logged, and never a version", async () => {
+    const { bundle, failures, sourceChecks, id, on } = await switching();
+    bundle.answer = () => ({
+      outcome: "gate_unavailable",
+      detail: "gate timeout",
+    });
+    const { skill } = await on();
+    expect(skill).toMatchObject({
+      status: "failed",
+      current_version_id: null,
+      last_check: { result: "gate_unavailable" },
+    });
+    expect(sourceChecks).toEqual([null]);
+    expect(failures).toMatchObject([
+      {
+        fields: {
+          workspace_id: WORKSPACE,
+          skill_repository_id: id,
+          skill: "pdf",
+          detail: "gate timeout",
+        },
+      },
+    ]);
+  });
+
+  test("what the checker refused, by its path inside the skill", async () => {
+    const { bundle, on } = await switching();
+    bundle.answer = () => ({
+      outcome: "rejected",
+      issues: [
+        { path: "skills/pdf/run.sh", code: "denied_path", message: "no" },
+      ],
+    });
+    expect((await on()).skill?.last_check).toMatchObject({
+      result: "rejected",
+      issues: [{ path: "run.sh", code: "denied_path", message: "no" }],
+    });
+  });
+
+  test.each([
+    ["a directory gone at that commit", { kind: "missing" }, "source_missing"],
+    [
+      "a directory refused before its files were read",
+      {
+        kind: "refused",
+        issues: [{ path: "", code: "too_large", message: "no" }],
+      },
+      "rejected",
+    ],
+  ] as const)("%s", async (_what, tree, result) => {
+    const { state, registered, on } = await switching();
+    state.read = () => tree as SkillTree;
+    expect((await on()).skill).toMatchObject({
+      status: "failed",
+      last_check: { result },
+    });
+    expect(registered).toEqual([]);
+  });
+
+  test("GitHub failing on the directory is kept as that; the repository turned private after the files, as gone", async () => {
+    const failing = await switching();
+    failing.state.read = () => {
+      throw new GitHubAppCheckError("github_rejected");
+    };
+    expect((await failing.on()).skill?.last_check).toMatchObject({
+      result: "github_unavailable",
+    });
+    expect(failing.registered).toEqual([]);
+
+    const hidden = await switching();
+    hidden.state.read = () => {
+      hidden.state.repository = NOT_PUBLIC;
+      return filesOf("pdf");
+    };
+    expect((await hidden.on()).skill?.last_check).toMatchObject({
+      result: "source_missing",
+    });
+    expect(hidden.registered).toEqual([]);
+  });
+
+  test("a check another one took over is never reported as checked", async () => {
+    const { bundle, service, id, on } = await switching();
+    bundle.answer = () => ({ outcome: "lease_lost" });
+    const { answer, skill } = await on();
+    expect(answer.check).toBe("lease_lost");
+    expect(skill).toMatchObject({ status: "checking", last_check: null });
+    expect((await service.checkNow(caller(), id)).outcome).toBe("lease_lost");
+  });
+
+  test.each([
+    "stale",
+    "name_conflict",
+    "baseline_changed",
+    "withheld",
+  ] as const)(
+    "the version's own write said %s: this check adds nothing to it",
+    async (outcome) => {
+      const { bundle, sourceChecks, on } = await switching();
+      bundle.answer = () =>
+        (outcome === "withheld"
+          ? { outcome, bundle: {} as never }
+          : { outcome }) as BundleResult;
+      const { answer, skill } = await on();
+      expect(answer.check).toBe("checked");
+      expect(skill?.last_check).toBeNull();
+      expect(sourceChecks).toEqual([]);
+    },
+  );
+
+  test("an outcome only the per-skill sync has is a bug, not a result", async () => {
+    const { bundle, on } = await switching();
+    bundle.answer = () => ({ outcome: "paused" });
+    await expect(on()).rejects.toThrow("reached the paused path");
+  });
+});
+
+describe("a check of a repository whose skills are switched on", () => {
+  async function following() {
+    const all = setup();
+    const { repository, skills } = await all.service.register(caller(), {
+      url: URL,
+    });
+    await all.service.setSwitch(
+      caller(),
+      repository.id,
+      skills[0]?.id ?? "",
+      true,
+    );
+    all.registered.length = 0;
+    all.state.calls.length = 0;
+    return { ...all, id: repository.id };
+  }
+
+  test("under another owner takes nothing: not the listing, not a file; the versions stay", async () => {
+    const { service, state, registered, id } = await following();
+    state.repository = { ...REPOSITORY, ownerId: 71 };
+    state.refs.main = COMMIT_B;
+    state.trees[COMMIT_B] = treeOf({
+      "skills/pdf/SKILL.md": skillFile("pdf"),
+      "skills/new/SKILL.md": skillFile("new"),
+    });
+    const checked = await service.checkNow(caller(), id);
+    expect(checked.repository).toMatchObject({
+      last_commit: COMMIT_A,
+      skill_count: 1,
+      last_sync: { result: "owner_changed", commit: COMMIT_B },
+    });
+    expect(checked.skills).toMatchObject([
+      { path: "skills/pdf", status: "on", current_version_id: "version:pdf" },
+    ]);
+    expect(registered).toEqual([]);
+    expect(state.calls.filter((call) => call.startsWith("read"))).toEqual([]);
+  });
+
+  test("the owner changing between the listing and a skill's files stops that skill with nothing written", async () => {
+    const { service, state, registered, sourceChecks, id } = await following();
+    state.read = () => {
+      state.repository = { ...REPOSITORY, ownerId: 71 };
+      return filesOf("pdf");
+    };
+    const checked = await service.checkNow(caller(), id);
+    expect(checked.outcome).toBe("checked");
+    expect(registered).toEqual([]);
+    expect(sourceChecks).toEqual([]);
+    expect(checked.skills[0]?.last_check).toMatchObject({ result: "passed" });
+  });
+
+  test("the daily pass checks what is due under its own trigger, and one repository failing leaves the next its check", async () => {
+    const { service, bundle, registered, failures, due, dueAsked, id } =
+      await following();
+    due.push({ workspaceId: WORKSPACE, id: crypto.randomUUID() });
+    due.push({ workspaceId: WORKSPACE, id });
+    expect(await service.daily()).toBe(2);
+    expect(dueAsked).toEqual([
+      {
+        before: new Date("2026-11-27T00:00:00.000Z"),
+        limit: 10,
+        claimMs: 30 * 60_000,
+      },
+    ]);
+    expect(registered).toHaveLength(1);
+    expect(registered[0]?.git).toMatchObject({
+      trigger: { kind: "daily", deliveryId: null, userId: null },
+      repository: { trigger: { kind: "daily", userId: null } },
+    });
+    expect(failures).toEqual([]);
+
+    bundle.answer = () => {
+      throw new Error("the store is down");
+    };
+    due.push({ workspaceId: WORKSPACE, id });
+    expect(await service.daily()).toBe(1);
+    expect(failures).toMatchObject([
+      {
+        error: { message: "the store is down" },
+        fields: { workspace_id: WORKSPACE, skill_repository_id: id },
+      },
     ]);
   });
 });

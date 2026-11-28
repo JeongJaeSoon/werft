@@ -11,8 +11,12 @@ import type {
   ExtensionBundleSource,
   ExtensionBundleStore,
   ExtensionMode,
+  GitVersionInput,
   Principal,
+  RegisterExtensionBundleResult,
+  RepositoryApprovalInput,
   SkillAutoApproval,
+  SkillRepositorySkillCheck,
 } from "@werft-ai/platform";
 import {
   and,
@@ -48,6 +52,7 @@ import {
   lockedSource,
   recordCheckInTx,
 } from "./skill-git-sources.ts";
+import { SWITCH_OFF, skillCheckJson } from "./skill-repositories.ts";
 
 type Row = typeof extensionBundles.$inferSelect;
 
@@ -302,6 +307,344 @@ async function writeReceipt(
   });
 }
 
+/**
+ * A version of a registered repository's skill: written approved and
+ * current, or not at all. Registering the repository approved it and the
+ * gate passed this content, so no person stands behind the version; what
+ * stands instead is read again here, under the locks every writer of it
+ * takes in this order: the skill's name, its source row, the repository's
+ * row (shared) and the listed directory's. A removal, a restore, a ref
+ * change, a check taken over, the switch turned off or on again: any of
+ * them since the check read GitHub, and nothing is written.
+ */
+async function registerRepositoryVersion(
+  tx: Database,
+  input: Parameters<ExtensionBundleStore["register"]>[0],
+  git: GitVersionInput,
+  basis: RepositoryApprovalInput,
+): Promise<RegisterExtensionBundleResult> {
+  const { workspaceId, name } = input;
+  const source = await lockSkill(tx, workspaceId, name);
+  const [repository] = await tx
+    .select()
+    .from(skillRepositories)
+    .where(
+      and(
+        eq(skillRepositories.workspaceId, workspaceId),
+        eq(skillRepositories.id, basis.skillRepositoryId),
+      ),
+    )
+    .limit(1)
+    .for("share");
+  if (
+    !repository ||
+    repository.removedAt !== null ||
+    repository.generation !== basis.generation
+  ) {
+    return { outcome: "stale" };
+  }
+  if (repository.checkingToken !== basis.leaseToken) {
+    return { outcome: "lease_lost" };
+  }
+  const [skill] = await tx
+    .select()
+    .from(skillRepositorySkills)
+    .where(
+      and(
+        eq(skillRepositorySkills.skillRepositoryId, repository.id),
+        eq(skillRepositorySkills.id, basis.skillId),
+      ),
+    )
+    .limit(1)
+    .for("update");
+  if (
+    !skill ||
+    !skill.enabled ||
+    skill.enableGrantId !== basis.grantId ||
+    skill.path !== git.location.path
+  ) {
+    return { outcome: "stale" };
+  }
+  // What the gate found is kept only with the version it passed.
+  const lastGate = (
+    result: SkillRepositorySkillCheck["result"],
+    versionId: string | null,
+  ) =>
+    skillCheckJson({
+      at: git.checkedAt,
+      trigger: basis.trigger,
+      commit: git.location.commit,
+      result,
+      versionId,
+      issues: [],
+      blocks: [],
+      warnings: result === "passed" ? (basis.gate?.warnings ?? []) : [],
+      notices: result === "passed" ? (basis.gate?.notices ?? []) : [],
+    });
+  const checked = (
+    result: SkillRepositorySkillCheck["result"],
+    versionId: string | null,
+  ) =>
+    tx
+      .update(skillRepositorySkills)
+      .set({
+        lastGate: lastGate(result, versionId),
+        ...(result === "passed" ? { passedTreeSha: basis.treeSha } : {}),
+        updatedAt: DB_NOW,
+      })
+      .where(eq(skillRepositorySkills.id, skill.id));
+
+  // The name is this directory's when its source row says so, and free when
+  // nothing of the workspace carries it. Anything else is another skill's:
+  // an upload, a GitHub skill, another repository's or directory's.
+  const named = await tx
+    .select({ version: extensionBundles.version })
+    .from(extensionBundles)
+    .where(ofSkill(workspaceId, name));
+  const taken =
+    source === undefined
+      ? named.length > 0
+      : source.repositorySourceId !== repository.id ||
+        source.path !== skill.path;
+  if (taken) {
+    await tx
+      .update(skillRepositorySkills)
+      .set({
+        ...SWITCH_OFF,
+        lastGate: lastGate("name_conflict", null),
+        updatedAt: DB_NOW,
+      })
+      .where(eq(skillRepositorySkills.id, skill.id));
+    await writeSucceededReceipt(tx, input.principal, {
+      operation: "set_skill_repository_switch",
+      resource: { kind: "workspace", id: workspaceId },
+      workspaceId,
+      result: {
+        action: "off",
+        by: "sync",
+        reason: "name_conflict",
+        skill_repository_id: repository.id,
+        repository_id: repository.repositoryId,
+        repository: repository.repository,
+        generation: repository.generation,
+        skill_id: skill.id,
+        path: skill.path,
+        name,
+      },
+    });
+    return { outcome: "name_conflict" };
+  }
+
+  /** Whether the last approved version below `below` (null: of all) is `id`. */
+  const baselineIs = async (below: number | null, id: string | null) => {
+    const [row] = await tx
+      .select({ id: extensionBundles.id })
+      .from(extensionBundles)
+      .where(
+        and(
+          ofSkill(workspaceId, name),
+          eq(extensionBundles.review, "approved"),
+          below === null ? undefined : lt(extensionBundles.version, below),
+        ),
+      )
+      .orderBy(desc(extensionBundles.version))
+      .limit(1);
+    return (row?.id ?? null) === id;
+  };
+  const sourceChecked = (result: "created" | "unchanged", versionId: string) =>
+    recordCheckInTx(tx, workspaceId, name, {
+      at: git.checkedAt,
+      trigger: git.trigger,
+      commit: git.location.commit,
+      result,
+      versionId,
+      issues: [],
+      autoApproval: null,
+    });
+  /** Approves `row` where it is not, and makes it the current version where it is not. */
+  const promote = async (row: Row, from: string | null) => {
+    const version = row.version as number;
+    if (row.review !== "approved") {
+      await tx
+        .update(extensionBundles)
+        .set({ review: "approved", reviewedBy: null, reviewedAt: DB_NOW })
+        .where(eq(extensionBundles.id, row.id));
+    }
+    const before = await currentOf(tx, workspaceId, name);
+    const moved = before?.id !== row.id;
+    if (moved) await makeCurrent(tx, workspaceId, name, row.id);
+    const superseded = await supersedeBelow(
+      tx,
+      workspaceId,
+      name,
+      version,
+      null,
+    );
+    await writeReceipt(tx, input.principal, {
+      id: randomUUID(),
+      operation: "approve_extension",
+      target: { kind: "extension_bundle", id: row.id },
+      result: {
+        digest: row.digest,
+        from,
+        review: "approved",
+        by: "sync",
+        basis: "repository",
+        skill_repository_id: repository.id,
+        repository_id: repository.repositoryId,
+        commit: git.location.commit,
+        // Rule names and how many files, never a file's content.
+        warnings: (basis.gate?.warnings ?? []).map((finding) => ({
+          rule: finding.rule,
+          paths: finding.paths.length,
+        })),
+        license: { repository: repository.license, skill: skill.license },
+        ...(moved
+          ? { current: { from: before?.version ?? null, to: version } }
+          : {}),
+        ...(superseded.length > 0 ? { superseded } : {}),
+      },
+    });
+    return reread(tx, row.id);
+  };
+
+  const [existing] = await tx
+    .select()
+    .from(extensionBundles)
+    .where(
+      and(
+        eq(extensionBundles.workspaceId, workspaceId),
+        eq(extensionBundles.digest, input.digest),
+      ),
+    )
+    .limit(1);
+  if (existing) {
+    // A digest covers the skill's directory name, so it is this skill's.
+    if (existing.name !== name || existing.version === null) {
+      throw new Error("a repository skill's digest names another bundle");
+    }
+    // What a manager rejected or archived stays out, whatever upstream holds.
+    if (existing.review === "rejected" || existing.archivedAt !== null) {
+      await checked("withheld", existing.id);
+      await sourceChecked("unchanged", existing.id);
+      return { outcome: "withheld", bundle: bundleOf(existing) };
+    }
+    if (existing.review === "approved") {
+      // Already current, or an earlier version upstream went back to.
+      const bundle = existing.current
+        ? existing
+        : await promote(existing, "approved");
+      await checked("passed", existing.id);
+      await sourceChecked("unchanged", existing.id);
+      return { outcome: "already_registered", bundle: bundleOf(bundle) };
+    }
+    // Still waiting: written by a host from before repositories, or left
+    // behind by one. Only this gate's pass against the same baseline
+    // approves it; otherwise it stays as it is, out of every session.
+    if (
+      basis.gate === null ||
+      !(await baselineIs(existing.version, basis.gate.baselineId))
+    ) {
+      await checked("baseline_changed", null);
+      return { outcome: "baseline_changed" };
+    }
+    const bundle = await promote(existing, existing.review);
+    await checked("passed", existing.id);
+    await sourceChecked("unchanged", existing.id);
+    return { outcome: "already_registered", bundle: bundleOf(bundle) };
+  }
+
+  // New content: the gate must have passed it against the version that is
+  // the last approved one now.
+  if (basis.gate === null || !(await baselineIs(null, basis.gate.baselineId))) {
+    await checked("baseline_changed", null);
+    return { outcome: "baseline_changed" };
+  }
+  const version = Math.max(0, ...named.map((row) => row.version as number)) + 1;
+  // Who turned the switch on stands for the skill's first version.
+  const by = skill.enabledBy ?? repository.createdBy;
+  if (source === undefined) {
+    await tx.insert(skillGitSources).values({
+      workspaceId,
+      name,
+      connectionId: repository.connectionId,
+      installationId: repository.installationId,
+      access: "public",
+      repositoryId: repository.repositoryId,
+      repository: repository.repository,
+      path: skill.path,
+      ref: git.location.ref,
+      // Never true for a repository's skill: the daily pass and the
+      // auto-approve of a host from before repositories read this column.
+      syncEnabled: false,
+      repositorySourceId: repository.id,
+      createdBy: by,
+    });
+  } else {
+    // A restored repository may read through another connection, and a ref
+    // change moves every skill of it.
+    await tx
+      .update(skillGitSources)
+      .set({
+        connectionId: repository.connectionId,
+        installationId: repository.installationId,
+        repository: repository.repository,
+        ref: git.location.ref,
+        updatedAt: DB_NOW,
+      })
+      .where(
+        and(
+          eq(skillGitSources.workspaceId, workspaceId),
+          eq(skillGitSources.name, name),
+        ),
+      );
+  }
+  const [inserted] = await tx
+    .insert(extensionBundles)
+    .values({
+      id: input.id,
+      workspaceId,
+      name,
+      digest: input.digest,
+      label: input.label,
+      source: input.source,
+      sizeBytes: input.sizeBytes,
+      manifest: input.manifest,
+      registeredBy: source === undefined ? by : null,
+      git: gitVersionJson(git.location, git.trigger),
+      version,
+      review: "approved",
+      reviewedAt: DB_NOW,
+    })
+    .returning();
+  if (!inserted) throw new Error("extension bundle vanished in its tx");
+  await writeReceipt(tx, input.principal, {
+    id: input.receiptId,
+    operation: "register_extension",
+    target: { kind: "extension_bundle", id: inserted.id },
+    result: {
+      name: inserted.name,
+      digest: inserted.digest,
+      source: inserted.source,
+      size_bytes: inserted.sizeBytes,
+      skills: input.manifest.skills.map((one) => one.name),
+      version,
+      by: "sync",
+      basis: "repository",
+      skill_repository_id: repository.id,
+      git: gitVersionJson(git.location, git.trigger),
+    },
+  });
+  const bundle = await promote(inserted, null);
+  await checked("passed", inserted.id);
+  await sourceChecked("created", inserted.id);
+  return {
+    outcome: "registered",
+    bundle: bundleOf(bundle),
+    receiptId: input.receiptId,
+  };
+}
+
 export function createPostgresExtensionBundleStore(
   db: Database,
 ): ExtensionBundleStore {
@@ -335,7 +678,12 @@ export function createPostgresExtensionBundleStore(
     },
   ): Promise<
     | { outcome: "actor_inactive" | "outranked" | "not_found" }
-    | { actor: { userId: string; another: boolean }; row: Row }
+    | {
+        actor: { userId: string; another: boolean };
+        row: Row;
+        /** Whether the bundle is a version of a registered repository's skill. */
+        repositorySkill: boolean;
+      }
   > {
     const actor = await managerCheck(
       tx,
@@ -347,9 +695,10 @@ export function createPostgresExtensionBundleStore(
     if (typeof actor === "string") return { outcome: actor };
     const found = await byId(tx, input.workspaceId, input.bundleId);
     if (!found) return { outcome: "not_found" };
-    if (found.version !== null) {
-      await lockSkill(tx, input.workspaceId, found.name);
-    }
+    const source =
+      found.version === null
+        ? undefined
+        : await lockSkill(tx, input.workspaceId, found.name);
     const [row] = await tx
       .select()
       .from(extensionBundles)
@@ -362,7 +711,12 @@ export function createPostgresExtensionBundleStore(
       .limit(1)
       .for("update");
     if (!row) return { outcome: "not_found" };
-    return { actor, row };
+    return {
+      actor,
+      row,
+      repositorySkill:
+        source !== undefined && source.repositorySourceId !== null,
+    };
   }
 
   return {
@@ -409,6 +763,18 @@ export function createPostgresExtensionBundleStore(
     register(input) {
       return db.transaction(async (tx) => {
         const git = input.git;
+        if (git?.repository !== undefined) {
+          if (
+            input.skill !== true ||
+            git.newSource !== undefined ||
+            git.auto !== undefined
+          ) {
+            throw new Error(
+              "a repository skill's version is a skill version with no new source and no auto-approve",
+            );
+          }
+          return registerRepositoryVersion(tx, input, git, git.repository);
+        }
         // A version the Git sync made has no person behind it; its source
         // row, read again under its lock below, says whether it may.
         const synced = git !== undefined && git.newSource === undefined;
@@ -547,6 +913,12 @@ export function createPostgresExtensionBundleStore(
           // content cannot both take the same next version. A skill's
           // source is fixed by its first registration.
           source = await lockSkill(tx, input.workspaceId, input.name);
+          // A registered repository's skill takes versions from its
+          // repository's checks alone (above): not an upload, not another
+          // registration, not the per-skill sync.
+          if (source && source.repositorySourceId !== null) {
+            return { outcome: "source_mismatch" };
+          }
           if ((git === undefined || git.newSource) && source) {
             return { outcome: "source_mismatch" };
           }
@@ -688,13 +1060,18 @@ export function createPostgresExtensionBundleStore(
           input.managerRoles,
         );
         if (typeof actor === "string") return { outcome: actor };
-        await lockSkill(tx, input.workspaceId, input.name);
+        const source = await lockSkill(tx, input.workspaceId, input.name);
         const [any] = await tx
           .select({ id: extensionBundles.id })
           .from(extensionBundles)
           .where(ofSkill(input.workspaceId, input.name))
           .limit(1);
         if (!any) return { outcome: "not_found" };
+        // Its repository decides the current version: the next check would
+        // put back what a step down took away.
+        if (source && source.repositorySourceId !== null) {
+          return { outcome: "repository_skill" };
+        }
         const from = await currentOf(tx, input.workspaceId, input.name);
         const to =
           from?.version == null
@@ -742,6 +1119,12 @@ export function createPostgresExtensionBundleStore(
         if (row.archivedAt !== null) return { outcome: "archived" };
         if (row.review === input.review) {
           return { outcome: "unchanged", bundle: bundleOf(row) };
+        }
+        // Only the gate approves a registered repository's version: a person
+        // could otherwise approve one it never passed (left waiting by a host
+        // from before repositories) or one a manager took back.
+        if (locked.repositorySkill && input.review === "approved") {
+          return { outcome: "repository_skill" };
         }
         const selfReview = row.registeredBy === actor.userId;
         if (selfReview && actor.another) return { outcome: "self_review" };
@@ -1081,15 +1464,8 @@ export function createPostgresExtensionBundleStore(
       });
     },
 
-    async unavailableSkills(workspaceId) {
-      const unavailable = new Map<string, "hidden" | "withdrawn">();
-      for (const [name, availability] of await repositorySkills(
-        db,
-        workspaceId,
-      )) {
-        if (availability !== "ok") unavailable.set(name, availability);
-      }
-      return unavailable;
+    repositorySkills(workspaceId) {
+      return repositorySkills(db, workspaceId);
     },
   };
 }

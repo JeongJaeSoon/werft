@@ -202,6 +202,7 @@ export function sourceOf(row: Row): SkillGitSource {
     path: row.path,
     ref: row.ref,
     syncEnabled: row.syncEnabled,
+    repositorySourceId: row.repositorySourceId,
     autoApprove: {
       state: on ? "on" : "off",
       enabledBy: on ? row.autoApproveConsentedBy : null,
@@ -341,6 +342,7 @@ export function createPostgresSkillGitSourceStore(
             eq(skillGitSources.installationId, input.installationId),
             eq(skillGitSources.repositoryId, input.repositoryId),
             eq(skillGitSources.syncEnabled, true),
+            isNull(skillGitSources.repositorySourceId),
             sql`${skillGitSources.ref} !~ ${COMMIT_REF}`,
             or(
               eq(skillGitSources.ref, input.ref),
@@ -372,6 +374,9 @@ export function createPostgresSkillGitSourceStore(
           .where(
             and(
               eq(skillGitSources.syncEnabled, true),
+              // A registered repository's skill is checked by its
+              // repository's pass, never by this one.
+              isNull(skillGitSources.repositorySourceId),
               sql`${skillGitSources.ref} !~ ${COMMIT_REF}`,
               or(
                 isNull(skillGitSources.lastCheckedAt),
@@ -398,12 +403,17 @@ export function createPostgresSkillGitSourceStore(
           .select({
             busy: sql<boolean>`${skillGitSources.checkingUntil} IS NOT NULL AND ${skillGitSources.checkingUntil} > clock_timestamp()`,
             again: skillGitSources.checkAgain,
+            repositorySourceId: skillGitSources.repositorySourceId,
           })
           .from(skillGitSources)
           .where(byName(workspaceId, name))
           .limit(1)
           .for("update");
         if (!row) return { outcome: "not_found" as const };
+        // Its repository's pass checks it, under the repository's lease.
+        if (row.repositorySourceId !== null) {
+          return { outcome: "repository_skill" as const };
+        }
         if (row.busy) {
           const kept = keptOf(row.again);
           if (kept === null || RANK[trigger.kind] >= RANK[kept.kind]) {
@@ -451,7 +461,7 @@ export function createPostgresSkillGitSourceStore(
     },
 
     async recordCheck(workspaceId, name, check, token) {
-      await db
+      const written = await db
         .update(skillGitSources)
         .set({
           lastCheck: checkJson(check),
@@ -463,7 +473,9 @@ export function createPostgresSkillGitSourceStore(
             byName(workspaceId, name),
             eq(skillGitSources.checkingToken, token),
           ),
-        );
+        )
+        .returning({ name: skillGitSources.name });
+      return written.length > 0;
     },
 
     setEnabled(input) {
@@ -475,6 +487,11 @@ export function createPostgresSkillGitSourceStore(
         if (!input.managerRoles.includes(role)) return { outcome: "outranked" };
         const row = await lockedSource(tx, input.workspaceId, input.name);
         if (!row) return { outcome: "not_found" };
+        // Sync stays off for a registered repository's skill: the column is
+        // what keeps a host from before repositories away from it.
+        if (row.repositorySourceId !== null) {
+          return { outcome: "repository_skill" };
+        }
         if (row.syncEnabled === input.enabled) {
           return { outcome: "unchanged", source: sourceOf(row) };
         }
@@ -521,6 +538,9 @@ export function createPostgresSkillGitSourceStore(
         if (!input.managerRoles.includes(role)) return { outcome: "outranked" };
         const row = await lockedSource(tx, input.workspaceId, input.name);
         if (!row) return { outcome: "not_found" };
+        if (row.repositorySourceId !== null) {
+          return { outcome: "repository_skill" };
+        }
         // What the two-manager flow left is cleared by off and replaced by on.
         if (
           input.action === "on" ? autoApproveOn(row) : row.autoApprove === "off"

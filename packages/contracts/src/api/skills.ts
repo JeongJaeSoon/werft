@@ -383,6 +383,13 @@ export type RegisterGitHubSkillRequest = z.infer<
   typeof registerGitHubSkillRequestSchema
 >;
 
+export const SKILL_CHECK_OUTCOME_VALUES = [
+  "checked",
+  "queued",
+  "lease_lost",
+] as const;
+export type SkillCheckOutcome = (typeof SKILL_CHECK_OUTCOME_VALUES)[number];
+
 export const putSkillSyncRequestSchema = z
   .object({ enabled: z.boolean() })
   .strict();
@@ -395,9 +402,9 @@ export const skillSyncResponseSchema = z
     receipt_id: receiptIdSchema.nullable().meta({
       description: "Null when sync already was in that state.",
     }),
-    check: z.enum(["checked", "queued"]).nullable().meta({
+    check: z.enum(SKILL_CHECK_OUTCOME_VALUES).nullable().meta({
       description:
-        "The check this call ran, on a resume or on turning auto-approve on. `queued`: a check of the skill was running, and it runs once more when it ends. Null when the call ran none.",
+        "The check this call ran, on a resume or on turning auto-approve on. `queued`: a check of the skill was running, and it runs once more when it ends. `lease_lost`: another process took the skill over before this check had written its outcome. Null when the call ran none.",
     }),
   })
   .strict();
@@ -405,9 +412,9 @@ export type SkillSyncResponse = z.infer<typeof skillSyncResponseSchema>;
 
 export const checkSkillResponseSchema = z
   .object({
-    outcome: z.enum(["checked", "queued"]).meta({
+    outcome: z.enum(SKILL_CHECK_OUTCOME_VALUES).meta({
       description:
-        "`queued`: a check of the skill was running, and it runs once more when it ends.",
+        "`queued`: a check of the skill was running, and it runs once more when it ends. `lease_lost`: another process took the skill over before this check had written its outcome; `last_check` is that process's or an earlier one.",
     }),
     last_check: skillSyncCheckSchema.nullable(),
   })

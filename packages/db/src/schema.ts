@@ -7690,6 +7690,13 @@ export const skillGitSources = pgTable(
       "skill_git_sources_access_check",
       sql`${table.access} IN ('installation', 'public')`,
     ),
+    // A registered repository's skill never syncs on its own: its repository's
+    // pass checks it. In the database, so a host from before repositories,
+    // whose daily pass and auto-approve read this column, cannot turn it on.
+    check(
+      "skill_git_sources_repository_sync_check",
+      sql`${table.repositorySourceId} IS NULL OR NOT ${table.syncEnabled}`,
+    ),
     check(
       "skill_git_sources_auto_approve_check",
       sql`${table.autoApprove} IN ('off', 'requested', 'on') AND (${table.autoApprove} = 'off') = (${table.autoApproveRequestedBy} IS NULL) AND (${table.autoApprove} = 'on') = (${table.autoApproveConsentedBy} IS NOT NULL) AND (${table.autoApprove} = 'on') = (${table.autoApproveGrantId} IS NOT NULL)`,
@@ -7766,7 +7773,7 @@ export const skillRepositories = pgTable(
 );
 
 // One SKILL.md directory of a skill repository, as its last listing read it.
-// The switch is off until an admin turns it on; nothing turns it on yet.
+// The switch is off until an admin turns it on.
 export const skillRepositorySkills = pgTable(
   "skill_repository_skills",
   {
@@ -7798,6 +7805,7 @@ export const skillRepositorySkills = pgTable(
     // New each time the switch is turned on: a check that read the switch
     // under another grant writes nothing.
     enableGrantId: uuid("enable_grant_id"),
+    // The last check of the content since the switch was last turned on.
     lastGate: jsonb("last_gate"),
     notice: jsonb(),
     acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),

@@ -57,6 +57,10 @@ const refused = (reasonCode: string, message: string, details = {}) =>
     ...details,
   });
 
+/** A per-skill control asked of a registered repository's skill. */
+const REPOSITORY_SKILL = (message: string) =>
+  refused("repository_skill", message);
+
 const SELF_REVIEW = () =>
   new SessionServiceError(
     "FORBIDDEN",
@@ -334,17 +338,17 @@ export function createSkillService(deps: SkillServiceDeps) {
       await requirePermitted(authorization, caller, "workspace.read", {
         ...workspace(caller),
       });
-      const [rows, attachments, sources, unavailable] = await Promise.all([
+      const [rows, attachments, sources, ofRepositories] = await Promise.all([
         store.list(caller.ownerId),
         store.listAttachments({ workspaceId: caller.ownerId }),
         deps.gitSources?.(caller.ownerId) ??
           Promise.resolve(new Map<string, SkillGitSource>()),
-        store.unavailableSkills(caller.ownerId),
+        store.repositorySkills(caller.ownerId),
       ]);
       const byName = new Map<string, ExtensionBundle[]>();
       for (const row of rows) {
         // Its repository's screen shows it; no one picks it meanwhile.
-        if (unavailable.has(row.name)) continue;
+        if ((ofRepositories.get(row.name) ?? "ok") !== "ok") continue;
         byName.set(row.name, [...(byName.get(row.name) ?? []), row]);
       }
       return {
@@ -359,9 +363,14 @@ export function createSkillService(deps: SkillServiceDeps) {
               name,
               source: git === null ? ("upload" as const) : ("github" as const),
               git,
-              pending_count: versions.filter(
-                (row) => row.review === "pending" && row.archivedAt === null,
-              ).length,
+              // No one reviews a registered repository's version: one left
+              // waiting there is held back by the gate, not by a person.
+              pending_count: ofRepositories.has(name)
+                ? 0
+                : versions.filter(
+                    (row) =>
+                      row.review === "pending" && row.archivedAt === null,
+                  ).length,
               versions: versions.sort(byVersion).map(skillVersionViewOf),
               workspace_attachment:
                 attached === undefined
@@ -430,6 +439,12 @@ export function createSkillService(deps: SkillServiceDeps) {
           throw OUTRANKED();
         case "paused":
         case "lease_lost":
+        case "blocked":
+        case "gate_unavailable":
+        case "withheld":
+        case "stale":
+        case "name_conflict":
+        case "baseline_changed":
           throw new Error(`an upload reached the ${result.outcome} path`);
         case "registered":
           return {
@@ -555,6 +570,10 @@ export function createSkillService(deps: SkillServiceDeps) {
             "version_archived",
             "An archived version is not reviewed",
           );
+        case "repository_skill":
+          throw REPOSITORY_SKILL(
+            "Only its repository's automatic check approves a version of this skill; it can be rejected",
+          );
       }
     },
 
@@ -641,6 +660,10 @@ export function createSkillService(deps: SkillServiceDeps) {
           throw refused(
             "no_previous_version",
             "No approved version that is not archived comes before the current one",
+          );
+        case "repository_skill":
+          throw REPOSITORY_SKILL(
+            "This skill follows its repository, so a step back would be undone by the next check; reject the current version instead",
           );
       }
     },

@@ -94,6 +94,30 @@ for (const p of ["docs/iso.md", "docs/pdf.md", "docs/zip.md"]) {
 console.log(`gitleaks scans: first ${firstMs} ms, second ${secondMs} ms; planted token found in ${paths.join(", ")}`);
 '
 
+# The skill gate in its child process (apps/control-host/src/wiring/skill-gate.ts)
+# as the image runs it: started by the image's user with no environment, it
+# judges a version and refuses a file type the rules do not let in. Prints
+# how long the run took.
+skill_gate_probe='
+const { skillGateProcess } = await import("/app/apps/control-host/src/wiring/skill-gate.ts");
+const enc = (s) => new TextEncoder().encode(s);
+const file = (path, text) => ({ path, mode: 0o644, bytes: enc(text), sha256: "" });
+const start = performance.now();
+const run = await skillGateProcess().run({
+  before: null,
+  after: [
+    file("skills/s/SKILL.md", "---\nname: s\ndescription: d\n---\nhello\n"),
+    file("skills/s/tool.bin", String.fromCharCode(127) + "ELF" + String.fromCharCode(0)),
+  ],
+  repositoryRootFiles: [],
+  allowedHosts: new Set(),
+});
+if (run.kind !== "judged" || run.result.blocks.map((b) => b.rule).join() !== "file_type") {
+  throw new Error("skill gate: " + JSON.stringify(run));
+}
+console.log(`skill gate in its process: ${Math.round(performance.now() - start)} ms`);
+'
+
 # the API image must reap what the verifier orphans wherever it
 # runs, not only under compose's `init: true`.
 api_init_smoke() {
@@ -260,6 +284,7 @@ case "$app" in
     docker run --rm "$image" test -s /usr/local/share/doc/gitleaks/GO-LICENSE
     docker run --rm "$image" test -s /usr/local/share/doc/gitleaks/modules/github.com/andybalholm/brotli@v1.2.7/LICENSE
     docker run --rm "$image" bun -e "$gitleaks_probe"
+    docker run --rm "$image" bun -e "$skill_gate_probe"
     api_init_smoke "$image"
     # The docs the built-in `werft` MCP server answers from, in all three
     # languages: without them the API refuses to start.

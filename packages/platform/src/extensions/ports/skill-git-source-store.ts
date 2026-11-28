@@ -70,6 +70,13 @@ export type SkillGitSource = {
   path: string;
   ref: string;
   syncEnabled: boolean;
+  /**
+   * The registered repository the skill was switched on in; null for a skill
+   * registered on its own. Its versions come only from that repository's
+   * checks: `syncEnabled` stays false, which keeps a host from before
+   * repositories away from it, and the per-skill controls are refused.
+   */
+  repositorySourceId: string | null;
   autoApprove: SkillAutoApproveState;
   lastCheck: SkillSyncCheck | null;
 };
@@ -77,12 +84,16 @@ export type SkillGitSource = {
 export type SetAutoApproveResult =
   | { outcome: "updated"; source: SkillGitSource; receiptId: string }
   | { outcome: "unchanged"; source: SkillGitSource }
-  | { outcome: "not_found" | "actor_inactive" | "outranked" };
+  | { outcome: "not_found" | "actor_inactive" | "outranked" }
+  /** A registered repository's skill: its repository's switch decides. */
+  | { outcome: "repository_skill" };
 
 export type SetSkillSyncResult =
   | { outcome: "updated"; source: SkillGitSource; receiptId: string }
   | { outcome: "unchanged"; source: SkillGitSource }
-  | { outcome: "not_found" | "actor_inactive" | "outranked" };
+  | { outcome: "not_found" | "actor_inactive" | "outranked" }
+  /** A registered repository's skill: its repository's switch decides. */
+  | { outcome: "repository_skill" };
 
 /**
  * GitHub skills' sources and their sync. A check takes the skill with
@@ -122,7 +133,8 @@ export interface SkillGitSourceStore {
     trigger: SkillSyncTrigger,
     leaseMs: number,
   ): Promise<
-    { outcome: "started"; token: string } | { outcome: "queued" | "not_found" }
+    | { outcome: "started"; token: string }
+    | { outcome: "queued" | "not_found" | "repository_skill" }
   >;
   /**
    * Lets the skill go, or, when a trigger was kept meanwhile, keeps it for
@@ -135,13 +147,16 @@ export interface SkillGitSourceStore {
     leaseMs: number,
     token: string,
   ): Promise<SkillSyncTrigger | null>;
-  /** Records a check that wrote no version, while `token` holds the skill. */
+  /**
+   * Records a check that wrote no version, while `token` holds the skill;
+   * false, and nothing written, when it no longer does.
+   */
   recordCheck(
     workspaceId: string,
     name: string,
     check: SkillSyncCheck,
     token: string,
-  ): Promise<void>;
+  ): Promise<boolean>;
   /**
    * Pauses or resumes sync under the source row's lock and writes the
    * `update_extension_sync` receipt with it.

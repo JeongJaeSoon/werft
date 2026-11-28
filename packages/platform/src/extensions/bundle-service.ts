@@ -23,18 +23,31 @@ import type {
   ExtensionBundleSource,
   ExtensionBundleStore,
   GitVersionInput,
+  RepositoryApprovalInput,
   ReviewExtensionBundleResult,
 } from "./ports/extension-bundle-store.ts";
+import type { SkillGateFindingRecord } from "./ports/skill-repository-store.ts";
 import type { ExtensionMode } from "./resolve.ts";
 import {
   checkBaseline,
   checkSkillVersion,
   type HostExtractor,
 } from "./skill-checks.ts";
+import {
+  judgeRepositoryVersion,
+  type RepositorySkillGate,
+} from "./skill-repository-gate.ts";
 
-/** A GitHub version as the sync hands it in; the checks are run here. */
-export type GitRegistration = Omit<GitVersionInput, "auto"> & {
+/**
+ * A GitHub version as a check hands it in; the checks and, for a registered
+ * repository's skill, the gate are run here.
+ */
+export type GitRegistration = Omit<GitVersionInput, "auto" | "repository"> & {
   auto?: Omit<NonNullable<GitVersionInput["auto"]>, "checks">;
+  repository?: Omit<RepositoryApprovalInput, "gate"> & {
+    /** File names at the repository's root at that commit, for the gate. */
+    rootFiles: readonly string[];
+  };
 };
 
 /** Who may register, review and attach bundles; the web console and API routes say the same. */
@@ -71,6 +84,11 @@ export type RegisterBundleResult =
   | { outcome: "rejected"; issues: BundleIssue[] }
   | { outcome: "registered"; bundle: ExtensionBundle; receiptId: string }
   | { outcome: "already_registered"; bundle: ExtensionBundle }
+  /** The gate refused a repository skill's content: no object, no row. */
+  | { outcome: "blocked"; blocks: SkillGateFindingRecord[] }
+  /** The gate gave no answer, which is not a pass: no object, no row. */
+  | { outcome: "gate_unavailable"; detail: string }
+  | { outcome: "withheld"; bundle: ExtensionBundle }
   | {
       outcome:
         | "actor_inactive"
@@ -78,7 +96,10 @@ export type RegisterBundleResult =
         | "name_taken"
         | "source_mismatch"
         | "paused"
-        | "lease_lost";
+        | "lease_lost"
+        | "stale"
+        | "name_conflict"
+        | "baseline_changed";
     };
 
 /**
@@ -93,6 +114,8 @@ export function createExtensionBundleService(deps: {
   newId?: () => string;
   /** How `new_url` reads hosts; without it every changed file is unjudged. */
   hosts?: HostExtractor;
+  /** What a registered repository's skill passes before it is stored. */
+  gate?: RepositorySkillGate;
 }) {
   const { store, objects } = deps;
   const limits = deps.limits ?? DEFAULT_BUNDLE_LIMITS;
@@ -158,6 +181,79 @@ export function createExtensionBundleService(deps: {
         });
         if (may !== "ok") return { outcome: may };
       }
+      // Judged before anything is stored: what the gate refuses leaves no
+      // object behind, and no row.
+      let git: GitVersionInput | undefined;
+      if (input.git !== undefined) {
+        const { auto, repository, ...rest } = input.git;
+        git = rest;
+        if (auto !== undefined || repository !== undefined) {
+          // Against what the reviewer's diff starts from; the write compares
+          // the baseline again under the lock. Content a version already
+          // holds is judged as that version.
+          const named = (await store.list(workspaceId)).filter(
+            (row) => row.name === bundle.slug,
+          );
+          const same = named.find((row) => row.digest === bundle.digest);
+          const baseline = checkBaseline(named, same?.id ?? null);
+          const before = async () =>
+            baseline === null
+              ? null
+              : await service.read(workspaceId, baseline.digest);
+          if (auto !== undefined) {
+            git.auto = {
+              ...auto,
+              checks: {
+                baselineId: baseline?.id ?? null,
+                findings: checkSkillVersion(
+                  (await before())?.files ?? null,
+                  bundle.files,
+                  deps.hosts,
+                ),
+              },
+            };
+          }
+          if (repository !== undefined) {
+            if (deps.gate === undefined) {
+              throw new Error(
+                "a repository skill's version needs the gate to judge it",
+              );
+            }
+            const { rootFiles, ...approval } = repository;
+            // A version already approved passed the gate of its day and one
+            // a manager rejected or archived stays out: neither is judged
+            // again. One still waiting is, like new content.
+            if (
+              same !== undefined &&
+              (same.review === "approved" ||
+                same.review === "rejected" ||
+                same.archivedAt !== null)
+            ) {
+              git.repository = { ...approval, gate: null };
+            } else {
+              const judgment = await judgeRepositoryVersion(deps.gate, {
+                before: (await before())?.files ?? null,
+                after: bundle.files,
+                repositoryRootFiles: rootFiles,
+              });
+              if (judgment.kind === "unavailable") {
+                return { outcome: "gate_unavailable", detail: judgment.detail };
+              }
+              if (judgment.kind === "blocked") {
+                return { outcome: "blocked", blocks: judgment.blocks };
+              }
+              git.repository = {
+                ...approval,
+                gate: {
+                  baselineId: baseline?.id ?? null,
+                  warnings: judgment.warnings,
+                  notices: judgment.notices,
+                },
+              };
+            }
+          }
+        }
+      }
       const tar = packBundleTar(bundle.files);
       // Object first: a row without its object is a bundle nothing can serve,
       // while an object without a row is only garbage for the sweep to find.
@@ -169,38 +265,6 @@ export function createExtensionBundleService(deps: {
         throw new BundleIntegrityError(
           `Object ${key} already holds different bytes.`,
         );
-      }
-      let git: GitVersionInput | undefined;
-      if (input.git !== undefined) {
-        const { auto, ...rest } = input.git;
-        git = rest;
-        if (auto !== undefined) {
-          // Against what the reviewer's diff starts from; the write compares
-          // the baseline again under the lock. Content a version already
-          // holds is judged as that version.
-          const named = (await store.list(workspaceId)).filter(
-            (row) => row.name === bundle.slug,
-          );
-          const baseline = checkBaseline(
-            named,
-            named.find((row) => row.digest === bundle.digest)?.id ?? null,
-          );
-          const before =
-            baseline === null
-              ? null
-              : await service.read(workspaceId, baseline.digest);
-          git.auto = {
-            ...auto,
-            checks: {
-              baselineId: baseline?.id ?? null,
-              findings: checkSkillVersion(
-                before?.files ?? null,
-                bundle.files,
-                deps.hosts,
-              ),
-            },
-          };
-        }
       }
       const result = await store.register({
         id: newId(),
@@ -225,6 +289,7 @@ export function createExtensionBundleService(deps: {
             receiptId: result.receiptId,
           };
         case "already_registered":
+        case "withheld":
           return { outcome: result.outcome, bundle: result.bundle };
         default:
           return { outcome: result.outcome };

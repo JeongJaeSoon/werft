@@ -1,10 +1,14 @@
 import type {
+  SkillRepositoryCheckResult,
   SkillRepositorySyncResult,
   SkillRepositoryTriggerKind,
   WorkspaceRole,
 } from "@werft-ai/contracts";
 import type { Principal } from "../../musterrolle/index.ts";
-import type { SkillSyncIssue } from "./skill-git-source-store.ts";
+import type {
+  SkillSyncIssue,
+  SkillSyncTrigger,
+} from "./skill-git-source-store.ts";
 
 /** What started a listing of a skill repository. */
 export type SkillRepositoryTrigger = {
@@ -19,6 +23,27 @@ export type SkillRepositorySync = {
   commit: string | null;
   result: SkillRepositorySyncResult;
   issues: SkillSyncIssue[];
+};
+
+/** A gate finding as it is kept: a rule a later host names reads back too. */
+export type SkillGateFindingRecord = {
+  rule: string;
+  paths: string[];
+  samples: string[];
+};
+
+/** One check of a switched-on skill's content, as its row keeps the last. */
+export type SkillRepositorySkillCheck = {
+  at: Date;
+  trigger: SkillRepositoryTrigger;
+  commit: string | null;
+  result: SkillRepositoryCheckResult;
+  /** The version the content is (`passed`, `withheld`); null otherwise. */
+  versionId: string | null;
+  issues: SkillSyncIssue[];
+  blocks: SkillGateFindingRecord[];
+  warnings: SkillGateFindingRecord[];
+  notices: SkillGateFindingRecord[];
 };
 
 /** One skill directory as a listing read it. */
@@ -74,7 +99,22 @@ export type SkillRepositorySkill = SkillListingEntry & {
   /** False once the directory is gone from the repository. */
   present: boolean;
   enabled: boolean;
-  /** The source of the workspace skill that holds this name; null when none. */
+  /** New each time the switch is turned on; null while off. */
+  grantId: string | null;
+  /**
+   * The workspace skill this directory is: the name its source row took with
+   * its first version, which a later rename upstream does not change. Null
+   * until it has a version.
+   */
+  skillName: string | null;
+  /** That skill's current version; null while it has none. */
+  currentVersionId: string | null;
+  /** The last check since the switch was last turned on. */
+  lastCheck: SkillRepositorySkillCheck | null;
+  /**
+   * The source of the workspace skill that holds this name, this directory's
+   * own skill included (`skillName`); null when none.
+   */
   nameOwner: "upload" | "github" | null;
   /** Another listed directory of the workspace reads the same name. */
   nameShared: boolean;
@@ -118,6 +158,17 @@ export type SetSkillRepositoryRefResult =
   | { outcome: "changed" }
   /** No such repository, or it is removed. */
   | { outcome: "not_found" }
+  | Refused;
+
+export type SetSkillRepositorySwitchResult =
+  | { outcome: "updated"; receiptId: string }
+  | { outcome: "unchanged" }
+  /** No such repository or directory; `removed`: the repository is removed. */
+  | { outcome: "not_found" | "removed" }
+  /** Turning on a directory the listing refuses, or one gone upstream. */
+  | { outcome: "unavailable" | "missing" }
+  /** Turning on a name another skill of the workspace holds. */
+  | { outcome: "name_conflict"; owner: "upload" | "github" }
   | Refused;
 
 /**
@@ -198,4 +249,53 @@ export interface SkillRepositoryStore {
     sync: SkillRepositorySync;
     read: SkillRepositoryRead | null;
   }): Promise<boolean>;
+  /**
+   * Turns a skill's switch on or off under the repository's row (shared) and
+   * the directory's, with `set_skill_repository_switch`. On takes a new
+   * grant, clears the last check and is refused for a name another skill
+   * holds; off lets any check that read the switch on write nothing more.
+   */
+  setSwitch(
+    input: Managed & { id: string; skillId: string; enabled: boolean },
+  ): Promise<SetSkillRepositorySwitchResult>;
+  /**
+   * Keeps a check of a switched-on skill that wrote no version. Nothing is
+   * written, and false returned, unless `token` still holds the repository,
+   * it is active under `generation`, and the switch is on under `grantId`.
+   */
+  recordSkillCheck(input: {
+    workspaceId: string;
+    id: string;
+    skillId: string;
+    token: string;
+    generation: number;
+    grantId: string;
+    check: SkillRepositorySkillCheck;
+    /**
+     * What the skill's own source row keeps of it, once it has one, in the
+     * values a host from before repositories reads; null: nothing.
+     */
+    sourceCheck: {
+      trigger: SkillSyncTrigger;
+      result: "rejected" | "source_missing" | "github_unavailable";
+      issues: SkillSyncIssue[];
+    } | null;
+  }): Promise<boolean>;
+  /** Holds the repository `leaseMs` longer; false when `token` no longer holds it. */
+  extend(
+    workspaceId: string,
+    id: string,
+    leaseMs: number,
+    token: string,
+  ): Promise<boolean>;
+  /**
+   * Active repositories that follow a branch or a tag and were last checked
+   * before `before`. Each is claimed for `claimMs`: due again then unless a
+   * check recorded.
+   */
+  due(
+    before: Date,
+    limit: number,
+    claimMs: number,
+  ): Promise<Array<{ workspaceId: string; id: string }>>;
 }

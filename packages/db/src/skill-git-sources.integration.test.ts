@@ -128,7 +128,7 @@ integration("Git skill sources on PostgreSQL", () => {
     by: SkillSyncTrigger,
     newSource?: GitVersionInput["newSource"],
     ref = "main",
-  ): GitVersionInput => ({
+  ): GitRegistration => ({
     location: { repositoryId: REPOSITORY, path: "skills/x", ref, commit },
     trigger: by,
     checkedAt: new Date(),

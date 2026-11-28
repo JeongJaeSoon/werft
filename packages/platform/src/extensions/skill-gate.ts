@@ -51,6 +51,20 @@ export type SkillGateInput = {
 };
 
 const MAX_SAMPLES = 20;
+/** A sample is shown and stored: an ASCII host or a path can run to megabytes. */
+export const MAX_SAMPLE_LENGTH = 200;
+
+/** At most MAX_SAMPLE_LENGTH UTF-16 units, never half of a surrogate pair. */
+function sampleOf(text: string): string {
+  if (text.length <= MAX_SAMPLE_LENGTH) return text;
+  const last = text.charCodeAt(MAX_SAMPLE_LENGTH - 1);
+  return text.slice(
+    0,
+    last >= 0xd800 && last <= 0xdbff
+      ? MAX_SAMPLE_LENGTH - 1
+      : MAX_SAMPLE_LENGTH,
+  );
+}
 const MANIFEST = ".claude-plugin/plugin.json";
 const SCRIPTS_DIR = /^skills\/[^/]+\/scripts\//;
 const SKILL_FILE = /^skills\/([^/]+)\/SKILL\.md$/;
@@ -612,7 +626,7 @@ export function gateSkillVersion(input: SkillGateInput): SkillGateResult {
             {
               rule,
               paths: [...entry.paths].slice(0, MAX_SAMPLES),
-              samples: [...entry.samples].slice(0, MAX_SAMPLES),
+              samples: [...entry.samples].slice(0, MAX_SAMPLES).map(sampleOf),
             },
           ];
     });

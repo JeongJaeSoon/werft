@@ -235,8 +235,17 @@ export {
   plainTextHosts,
   UNREADABLE,
 } from "./extensions/skill-checks.ts";
+export {
+  gateSkillVersion,
+  type SkillGateFinding,
+  type SkillGateInput,
+  type SkillGateResult,
+  type SkillGateRule,
+} from "./extensions/skill-gate.ts";
+export * from "./extensions/skill-gate-runner.ts";
 export * from "./extensions/skill-git-sync.ts";
 export * from "./extensions/skill-repositories.ts";
+export type { RepositorySkillGate } from "./extensions/skill-repository-gate.ts";
 export {
   listSkillRepository,
   repositoryRootFiles,

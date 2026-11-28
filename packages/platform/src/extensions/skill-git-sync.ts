@@ -178,6 +178,13 @@ export const SKILL_DAILY_CHECK_PASS_MS = 10 * 60_000;
 export const SKILL_DAILY_CLAIM_MS = 30 * 60_000;
 const DAILY_BATCH = 50;
 
+/** The per-skill sync controls, asked of a registered repository's skill. */
+const REPOSITORY_SKILL = () =>
+  refused(
+    "repository_skill",
+    "A skill of a registered repository is switched on, checked and updated from its repository; it has no sync of its own",
+  );
+
 const asNumber = (value: unknown): number | null =>
   typeof value === "number" && Number.isSafeInteger(value) && value > 0
     ? value
@@ -311,18 +318,22 @@ export function createSkillGitSync(
     );
   }
 
-  /** One run of the check; records its outcome, throws only off GitHub. */
+  /**
+   * One run of the check; records its outcome, throws only off GitHub. False
+   * when another check had taken the skill over by the time it wrote: its
+   * outcome is then not the skill's last check.
+   */
   async function once(
     workspaceId: string,
     name: string,
     trigger: SkillSyncTrigger,
     token: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const source = await sources.get(workspaceId, name);
-    if (source === null) return;
+    if (source === null) return true;
     // Only "지금 확인" runs while paused; a trigger kept while sync was
     // being paused is dropped like the rest.
-    if (!source.syncEnabled && trigger.kind !== "manual") return;
+    if (!source.syncEnabled && trigger.kind !== "manual") return true;
     const at = now();
     const record = (
       result: SkillSyncCheck["result"],
@@ -424,6 +435,7 @@ export function createSkillGitSync(
     // registered, already_registered and paused are recorded with the
     // version's own write; a source that went away, or a lease another
     // check took over, has nothing to record.
+    return result.outcome !== "lease_lost";
   }
 
   /**
@@ -434,17 +446,20 @@ export function createSkillGitSync(
     workspaceId: string,
     name: string,
     trigger: SkillSyncTrigger,
-  ): Promise<"checked" | "queued" | "not_found"> {
+  ): Promise<
+    "checked" | "queued" | "not_found" | "lease_lost" | "repository_skill"
+  > {
     const begun = await sources.begin(workspaceId, name, trigger, leaseMs);
     if (begun.outcome !== "started") return begun.outcome;
     const { token } = begun;
     let next: SkillSyncTrigger | null = trigger;
     let failure: { error: unknown } | null = null;
+    let held = true;
     try {
       while (next !== null) {
         // A run that fails still lets a trigger kept meanwhile run.
         try {
-          await once(workspaceId, name, next, token);
+          if (!(await once(workspaceId, name, next, token))) held = false;
         } catch (error) {
           failure ??= { error };
         }
@@ -456,7 +471,8 @@ export function createSkillGitSync(
       throw error;
     }
     if (failure !== null) throw failure.error;
-    return "checked";
+    // Not "checked" for a check whose outcome another one's replaced.
+    return held ? "checked" : "lease_lost";
   }
 
   function inBackground(
@@ -717,6 +733,12 @@ export function createSkillGitSync(
           throw OUTRANKED();
         case "paused":
         case "lease_lost":
+        case "blocked":
+        case "gate_unavailable":
+        case "withheld":
+        case "stale":
+        case "name_conflict":
+        case "baseline_changed":
           throw new Error(
             `a first registration reached the ${result.outcome} path`,
           );
@@ -732,6 +754,7 @@ export function createSkillGitSync(
         userId,
       });
       if (outcome === "not_found") throw NOT_FOUND();
+      if (outcome === "repository_skill") throw REPOSITORY_SKILL();
       const source = await sources.get(caller.ownerId, name);
       if (source === null) throw NOT_FOUND();
       return {
@@ -757,6 +780,8 @@ export function createSkillGitSync(
       switch (result.outcome) {
         case "not_found":
           throw NOT_FOUND();
+        case "repository_skill":
+          throw REPOSITORY_SKILL();
         case "actor_inactive":
           throw ACTOR_INACTIVE();
         case "outranked":
@@ -784,7 +809,8 @@ export function createSkillGitSync(
             name,
             git: await sourceView(source),
             receipt_id: result.receiptId,
-            check: ran === "not_found" ? null : ran,
+            check:
+              ran === "not_found" || ran === "repository_skill" ? null : ran,
           };
         }
       }
@@ -804,6 +830,7 @@ export function createSkillGitSync(
       if (action === "on") {
         const source = await sources.get(caller.ownerId, name);
         if (source === null) throw NOT_FOUND();
+        if (source.repositorySourceId !== null) throw REPOSITORY_SKILL();
         const app = await credentialOf(source);
         if (app === null) {
           throw unavailable(new GitHubAppCheckError("github_rejected"));
@@ -838,6 +865,8 @@ export function createSkillGitSync(
       switch (result.outcome) {
         case "not_found":
           throw NOT_FOUND();
+        case "repository_skill":
+          throw REPOSITORY_SKILL();
         case "actor_inactive":
           throw ACTOR_INACTIVE();
         case "outranked":
@@ -865,7 +894,8 @@ export function createSkillGitSync(
             name,
             git: await sourceView(source),
             receipt_id: result.receiptId,
-            check: ran === "not_found" ? null : ran,
+            check:
+              ran === "not_found" || ran === "repository_skill" ? null : ran,
           };
         }
       }

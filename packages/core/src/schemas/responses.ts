@@ -146,6 +146,7 @@ import {
   putGitHubRepositoryAppPinResponseSchema,
   putGitHubUserLinkAppResponseSchema,
   putSkillRepositoryRefResponseSchema,
+  putSkillRepositorySkillSwitchResponseSchema,
   putSlackBindingResponseSchema,
   putSlackConfigTokenResponseSchema,
   putSlackSecretResponseSchema,
@@ -483,6 +484,8 @@ export const responseSchemas = {
     checkSkillRepositoryResponseSchema,
   "PUT /v1/workspace/skill-repositories/{id}/ref":
     putSkillRepositoryRefResponseSchema,
+  "PUT /v1/workspace/skill-repositories/{id}/skills/{skill_id}/switch":
+    putSkillRepositorySkillSwitchResponseSchema,
   "POST /v1/workspace/skills/{name}/revert": revertSkillResponseSchema,
   "GET /v1/workspace/skills/versions/{id}/files": skillVersionFilesSchema,
   "POST /v1/workspace/skills/versions/{id}/review":

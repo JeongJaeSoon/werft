@@ -203,6 +203,10 @@ describe("registering", () => {
         id: expect.any(String),
         present: true,
         enabled: false,
+        grantId: null,
+        skillName: null,
+        currentVersionId: null,
+        lastCheck: null,
         nameOwner: null,
         nameShared: false,
       },
@@ -211,6 +215,10 @@ describe("registering", () => {
         id: expect.any(String),
         present: true,
         enabled: false,
+        grantId: null,
+        skillName: null,
+        currentVersionId: null,
+        lastCheck: null,
         nameOwner: null,
         nameShared: false,
       },
@@ -707,9 +715,9 @@ describe("a listing's lease and what it may write", () => {
       .set({
         lastSync: {
           at: AT.toISOString(),
-          trigger: { kind: "daily", user_id: null },
+          trigger: { kind: "webhook", user_id: null },
           commit: COMMIT_A,
-          result: "owner_changed",
+          result: "archived_upstream",
           issues: [],
         },
       })

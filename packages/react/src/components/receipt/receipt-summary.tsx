@@ -109,6 +109,7 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   register_skill_repository: "스킬 저장소 등록",
   remove_skill_repository: "스킬 저장소 제거",
   update_skill_repository_ref: "스킬 저장소 ref 변경",
+  set_skill_repository_switch: "저장소 스킬 켜기·끄기",
   create_login_provider: "로그인 공급자 추가",
   update_login_provider: "로그인 공급자 설정 변경",
   refresh_login_provider_discovery: "로그인 공급자 discovery 다시 확인",

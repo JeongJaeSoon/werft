@@ -2,16 +2,21 @@ import {
   checkSkillRepositoryResponseSchema,
   putSkillRepositoryRefRequestSchema,
   putSkillRepositoryRefResponseSchema,
+  putSkillRepositorySkillSwitchRequestSchema,
+  putSkillRepositorySkillSwitchResponseSchema,
   registerSkillRepositoryRequestSchema,
   registerSkillRepositoryResponseSchema,
   removeSkillRepositoryResponseSchema,
   skillRepositoryDetailSchema,
   skillRepositoryListSchema,
   skillRepositoryParamsSchema,
+  skillRepositorySkillParamsSchema,
 } from "@werft-ai/contracts";
-import type {
-  SkillRepositoryService,
-  SkillRepositoryStore,
+import {
+  SKILL_CHECK_LEASE_MS,
+  type SkillRepositoryService,
+  type SkillRepositoryServiceDeps,
+  type SkillRepositoryStore,
 } from "@werft-ai/platform";
 import {
   type ApiRouter,
@@ -23,14 +28,24 @@ import { beyondRequest } from "../../deadline.ts";
 import { mapped, requireParams } from "../errors.ts";
 
 /**
- * The store and the App lookup as a listing uses them, each call under a
- * deadline of its own: a listing whose request timed out while it read
- * GitHub still records what it read, runs the check queued behind it and
- * lets the repository go, and the listing a ref change owes still starts. A
- * check someone asked for starts only within its request.
+ * The store and the App lookup as a check uses them, each call under a
+ * deadline of its own: a check whose request timed out while it read GitHub
+ * or ran the gate still records what it found, runs the check queued behind
+ * it and lets the repository go, and the check a ref change or a switch
+ * turned on owes still starts. A check someone asked for starts only within
+ * its request.
  */
 export function listingBeyondRequest<
-  S extends Pick<SkillRepositoryStore, "begin" | "find" | "record" | "finish">,
+  S extends Pick<
+    SkillRepositoryStore,
+    | "begin"
+    | "find"
+    | "record"
+    | "finish"
+    | "skills"
+    | "extend"
+    | "recordSkillCheck"
+  >,
   A extends unknown[],
   T,
 >(store: S, apps: (...args: A) => Promise<T>) {
@@ -38,7 +53,9 @@ export function listingBeyondRequest<
     store: {
       ...store,
       begin: ((workspaceId, id, trigger, leaseMs) =>
-        (trigger.kind === "ref" ? beyondRequest(store.begin) : store.begin)(
+        (trigger.kind === "ref" || trigger.kind === "enable"
+          ? beyondRequest(store.begin)
+          : store.begin)(
           workspaceId,
           id,
           trigger,
@@ -47,9 +64,23 @@ export function listingBeyondRequest<
       find: beyondRequest(store.find),
       record: beyondRequest(store.record),
       finish: beyondRequest(store.finish),
+      skills: beyondRequest(store.skills),
+      extend: beyondRequest(store.extend),
+      recordSkillCheck: beyondRequest(store.recordSkillCheck),
     },
     apps: beyondRequest(apps),
   };
+}
+
+/**
+ * A skill's version as a check registers it, under a deadline as long as the
+ * check holds the repository for one skill: reading the version before it,
+ * the gate, the secret scan and the write together outlast a request.
+ */
+export function checkBeyondRequest(
+  bundles: SkillRepositoryServiceDeps["bundles"],
+): SkillRepositoryServiceDeps["bundles"] {
+  return { register: beyondRequest(bundles.register, SKILL_CHECK_LEASE_MS) };
 }
 
 export function registerSkillRepositoryRoutes(
@@ -117,6 +148,27 @@ export function registerSkillRepositoryRoutes(
     return jsonWithSchema(
       context,
       putSkillRepositoryRefResponseSchema,
+      changed,
+    );
+  });
+
+  apiRoute(router, "putSkillRepositorySkillSwitch", async (context) => {
+    const params = requireParams(context, skillRepositorySkillParamsSchema);
+    const body = await parseJsonBody(
+      context,
+      putSkillRepositorySkillSwitchRequestSchema,
+    );
+    const changed = await mapped(() =>
+      service.setSwitch(
+        context.get("caller"),
+        params.id,
+        params.skill_id,
+        body.enabled,
+      ),
+    );
+    return jsonWithSchema(
+      context,
+      putSkillRepositorySkillSwitchResponseSchema,
       changed,
     );
   });

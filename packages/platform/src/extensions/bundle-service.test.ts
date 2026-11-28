@@ -12,7 +12,9 @@ import type {
   ExtensionBundleStore,
   RegisterExtensionBundleResult,
 } from "./ports/extension-bundle-store.ts";
+import type { SecretFinding } from "./secret-scan.ts";
 import { plainTextHostExtractor } from "./skill-checks.ts";
+import { gateSkillVersion } from "./skill-gate.ts";
 
 const WS_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const WS_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -92,7 +94,7 @@ function fakeStore() {
     async listAttachments() {
       return [];
     },
-    async unavailableSkills() {
+    async repositorySkills() {
       return new Map();
     },
   };
@@ -276,5 +278,182 @@ describe("bundleObjectKey", () => {
     expect(() => bundleObjectKey(WS_A.toUpperCase(), digest)).toThrow();
     expect(() => bundleObjectKey(WS_A, `${digest}/../x`)).toThrow();
     expect(() => bundleObjectKey(WS_A, "A".repeat(64))).toThrow();
+  });
+});
+
+describe("a version of a registered repository's skill", () => {
+  const basis = {
+    skillRepositoryId: WS_B,
+    skillId: WS_B,
+    generation: 1,
+    leaseToken: "t",
+    grantId: WS_B,
+    trigger: { kind: "enable" as const, userId: null },
+    treeSha: "c".repeat(40),
+    rootFiles: ["LICENSE"],
+  };
+
+  function gated() {
+    const { store, rows } = fakeStore();
+    const objects = createMemoryCheckpointObjectStore();
+    const seen: Array<Parameters<ExtensionBundleStore["register"]>[0]> = [];
+    const write = store.register;
+    store.register = async (input) => {
+      seen.push(input);
+      return write(input);
+    };
+    const state = {
+      runs: 0,
+      findings: [] as SecretFinding[],
+      answers: true,
+    };
+    const service = createExtensionBundleService({
+      store,
+      objects,
+      hosts: plainTextHostExtractor,
+      gate: {
+        runner: {
+          async run(input) {
+            state.runs += 1;
+            return state.answers
+              ? { kind: "judged", result: gateSkillVersion(input) }
+              : { kind: "failed", reason: "timeout" };
+          },
+        },
+        secrets: {
+          async scan() {
+            return { kind: "scanned", findings: state.findings };
+          },
+        },
+        allowedHosts: () => new Set(),
+      },
+    });
+    const check = (body = "Do it.") =>
+      service.register({
+        principal: principal(WS_A),
+        slug: "research",
+        files: [
+          file("skills/research/SKILL.md", skill.replace("Do it.", body)),
+        ],
+        label: "research",
+        source: "github",
+        skill: true,
+        git: {
+          location: {
+            repositoryId: 7,
+            path: "skills/research",
+            ref: "main",
+            commit: "a".repeat(40),
+          },
+          trigger: { kind: "register", deliveryId: null, userId: null },
+          checkedAt: new Date(0),
+          repository: basis,
+        },
+      });
+    return { rows, objects, seen, state, check };
+  }
+
+  test("is judged before anything is stored: what the gate blocks leaves no object and no row", async () => {
+    const { rows, objects, seen, state, check } = gated();
+    state.findings = [
+      { rule: "generic-api-key", path: "skills/research/SKILL.md", line: 5 },
+    ];
+    expect(await check()).toEqual({
+      outcome: "blocked",
+      blocks: [
+        {
+          rule: "secret",
+          paths: ["skills/research/SKILL.md"],
+          samples: ["generic-api-key"],
+        },
+      ],
+    });
+    expect(objects.keys()).toEqual([]);
+    expect(rows).toEqual([]);
+    expect(seen).toEqual([]);
+  });
+
+  test("a gate with no answer is no pass, and nothing is stored", async () => {
+    const { rows, objects, state, check } = gated();
+    state.answers = false;
+    expect(await check()).toEqual({
+      outcome: "gate_unavailable",
+      detail: "gate timeout",
+    });
+    expect(objects.keys()).toEqual([]);
+    expect(rows).toEqual([]);
+  });
+
+  test("what passes is written with what it was judged against and what the gate noted", async () => {
+    const { rows, seen, check } = gated();
+    expect((await check()).outcome).toBe("registered");
+    expect(seen[0]?.git?.repository).toEqual({
+      skillRepositoryId: WS_B,
+      skillId: WS_B,
+      generation: 1,
+      leaseToken: "t",
+      grantId: WS_B,
+      trigger: { kind: "enable", userId: null },
+      treeSha: "c".repeat(40),
+      gate: {
+        baselineId: null,
+        warnings: [expect.objectContaining({ rule: "license_missing" })],
+        notices: [],
+      },
+    });
+    // The next content is judged against the last approved version.
+    const [first] = rows;
+    if (!first) throw new Error("no row");
+    first.review = "approved";
+    expect((await check("Do more.")).outcome).toBe("registered");
+    expect(seen[1]?.git?.repository?.gate?.baselineId).toBe(first.id);
+  });
+
+  test("content a version holds is judged again only while that version waits", async () => {
+    const { rows, seen, state, check } = gated();
+    await check();
+    const [row] = rows;
+    if (!row) throw new Error("no row");
+    // Waiting, as a host from before repositories leaves one.
+    await check();
+    expect(state.runs).toBe(2);
+    expect(seen[1]?.git?.repository?.gate).not.toBeNull();
+    for (const review of ["approved", "rejected"] as const) {
+      row.review = review;
+      await check();
+      expect(state.runs).toBe(2);
+      expect(seen.at(-1)?.git?.repository?.gate).toBeNull();
+    }
+    row.review = "pending";
+    row.archivedAt = new Date(0);
+    await check();
+    expect(state.runs).toBe(2);
+    expect(seen.at(-1)?.git?.repository?.gate).toBeNull();
+  });
+
+  test("is refused by a service that was given no gate", async () => {
+    const { service, rows } = setup();
+    await expect(
+      service.register({
+        principal: principal(WS_A),
+        slug: "research",
+        files: clean(),
+        label: "research",
+        source: "github",
+        skill: true,
+        git: {
+          location: {
+            repositoryId: 7,
+            path: "skills/research",
+            ref: "main",
+            commit: "a".repeat(40),
+          },
+          trigger: { kind: "register", deliveryId: null, userId: null },
+          checkedAt: new Date(0),
+          repository: basis,
+        },
+      }),
+    ).rejects.toThrow("needs the gate");
+    expect(rows).toEqual([]);
   });
 });

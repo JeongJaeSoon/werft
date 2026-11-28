@@ -15,11 +15,10 @@ import {
 import { type IngestListener, startIngestListener } from "../ingest/start.ts";
 import type { AmbiguousPathGuard } from "./ambiguous-path.ts";
 import {
+  WORKER_EGRESS_LISTS as EGRESS_LISTS,
   normalizeEgressHost,
   parseEgressAllowlist,
 } from "./egress-allowlist.ts";
-
-const EGRESS_LISTS = ["EGRESS_PRIVATE_ALLOWLIST", "EGRESS_ALLOWLIST"] as const;
 
 /**
  * Logs one warning when the collector's host is on a worker egress allowlist.

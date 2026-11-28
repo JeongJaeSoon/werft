@@ -263,11 +263,14 @@ describe("what an attachment of a repository skill offers a new session", () => 
         ).map((row) => [row.name, row.availability]),
       );
     expect(await availability()).toEqual({ notes: "ok", pdf: "ok" });
-    expect(await ws.store.unavailableSkills(ws.workspaceId)).toEqual(new Map());
+    // An upload is no repository's skill.
+    expect(await ws.store.repositorySkills(ws.workspaceId)).toEqual(
+      new Map([["pdf", "ok"]]),
+    );
 
     await ws.setEnabled("pdf", false);
     expect(await availability()).toEqual({ notes: "ok", pdf: "hidden" });
-    expect(await ws.store.unavailableSkills(ws.workspaceId)).toEqual(
+    expect(await ws.store.repositorySkills(ws.workspaceId)).toEqual(
       new Map([["pdf", "hidden"]]),
     );
 
@@ -275,7 +278,7 @@ describe("what an attachment of a repository skill offers a new session", () => 
     await ws.setEnabled("pdf", true);
     await ws.removeRepository();
     expect(await availability()).toEqual({ notes: "ok", pdf: "withdrawn" });
-    expect(await ws.store.unavailableSkills(ws.workspaceId)).toEqual(
+    expect(await ws.store.repositorySkills(ws.workspaceId)).toEqual(
       new Map([["pdf", "withdrawn"]]),
     );
   });
@@ -284,7 +287,7 @@ describe("what an attachment of a repository skill offers a new session", () => 
     const ws = await workspace();
     await ws.version("pdf");
     await ws.fromRepository("pdf", true, "skills/elsewhere");
-    expect(await ws.store.unavailableSkills(ws.workspaceId)).toEqual(
+    expect(await ws.store.repositorySkills(ws.workspaceId)).toEqual(
       new Map([["pdf", "hidden"]]),
     );
   });

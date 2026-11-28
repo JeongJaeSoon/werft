@@ -11,6 +11,43 @@ import type {
   SkillGitSource,
   SkillSyncTrigger,
 } from "./skill-git-source-store.ts";
+import type {
+  SkillGateFindingRecord,
+  SkillRepositoryTrigger,
+} from "./skill-repository-store.ts";
+
+/**
+ * What approves a version of a registered repository's skill: registering
+ * the repository approved its content, the switch offers this skill, and the
+ * gate passed these bytes. The write re-reads all of it under the skill's
+ * name lock and writes nothing when any of it changed since the check read
+ * it: the repository removed, restored or pointed at another ref (its
+ * generation), its check taken over (the lease), the switch turned off or on
+ * again (the grant).
+ */
+export type RepositoryApprovalInput = {
+  skillRepositoryId: string;
+  /** The listed directory (`skill_repository_skills` row). */
+  skillId: string;
+  generation: number;
+  leaseToken: string;
+  grantId: string;
+  /** What started the repository's check; kept with the skill's last check. */
+  trigger: SkillRepositoryTrigger;
+  /** The directory's git tree at the commit, recorded as passed with the version. */
+  treeSha: string;
+  /**
+   * The gate's pass of this content against `baselineId`, the approved
+   * version before it when the gate ran (null: none). Null when the gate did
+   * not run, because the content already was an approved version: a version
+   * still waiting is then left as it is.
+   */
+  gate: {
+    baselineId: string | null;
+    warnings: SkillGateFindingRecord[];
+    notices: SkillGateFindingRecord[];
+  } | null;
+};
 
 /**
  * A GitHub version of a skill. With
@@ -45,6 +82,11 @@ export type GitVersionInput = {
      */
     checks: { baselineId: string | null; findings: SkillCheckFinding[] };
   };
+  /**
+   * Set for a skill of a registered repository, never with `newSource` or
+   * `auto`: the version is written approved and current, or not at all.
+   */
+  repository?: RepositoryApprovalInput;
 };
 
 export const EXTENSION_BUNDLE_REVIEWS = [
@@ -108,7 +150,28 @@ export type RegisterExtensionBundleResult =
   /** A version by any check but "지금 확인" while sync is paused. */
   | { outcome: "paused" }
   /** The sync's check whose lease another check took over. */
-  | { outcome: "lease_lost" };
+  | { outcome: "lease_lost" }
+  /**
+   * A repository skill's version whose repository or switch is no longer
+   * what its check read (`RepositoryApprovalInput`): nothing is written.
+   */
+  | { outcome: "stale" }
+  /**
+   * A repository skill whose name another skill of the workspace holds:
+   * nothing is written but the switch, which is turned off.
+   */
+  | { outcome: "name_conflict" }
+  /**
+   * A repository skill's content that is a version a manager rejected or
+   * archived: it stays out, whatever the gate says.
+   */
+  | { outcome: "withheld"; bundle: ExtensionBundle }
+  /**
+   * A repository skill's version whose approved version before it is not the
+   * one the gate compared it with: nothing is written, the next check judges
+   * it again.
+   */
+  | { outcome: "baseline_changed" };
 
 export type ReviewExtensionBundleResult =
   | {
@@ -121,7 +184,12 @@ export type ReviewExtensionBundleResult =
   | { outcome: "unchanged"; bundle: ExtensionBundle }
   | { outcome: "not_found" | "actor_inactive" | "outranked" }
   /** The registrant, while another manager could review it. */
-  | { outcome: "self_review" | "archived" };
+  | { outcome: "self_review" | "archived" }
+  /**
+   * An approval of a registered repository's skill: only its gate approves a
+   * version. A rejection is taken, and stays.
+   */
+  | { outcome: "repository_skill" };
 
 export type RevertSkillResult =
   | {
@@ -132,7 +200,9 @@ export type RevertSkillResult =
     }
   | { outcome: "not_found" | "actor_inactive" | "outranked" }
   /** No current version, or none approved and not archived below it. */
-  | { outcome: "no_previous_version" };
+  | { outcome: "no_previous_version" }
+  /** A registered repository's skill follows its repository; the next check would undo the step. */
+  | { outcome: "repository_skill" };
 
 export type AttachmentReceiptResult =
   | { outcome: "recorded"; receiptId: string }
@@ -273,12 +343,12 @@ export interface ExtensionBundleStore {
     agentId?: string;
   }): Promise<ExtensionAttachment[]>;
   /**
-   * The skills of the workspace's registered repositories that a new session
-   * does not take, by name. A name absent is `ok`.
+   * The skills of the workspace's registered repositories, by name, and
+   * whether a new session takes each. A name absent is no repository's skill.
    */
-  unavailableSkills(
+  repositorySkills(
     workspaceId: string,
-  ): Promise<Map<string, Exclude<SkillAvailability, "ok">>>;
+  ): Promise<Map<string, SkillAvailability>>;
 }
 
 export type ExtensionAttachment = {

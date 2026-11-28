@@ -103,6 +103,9 @@ function memorySources(initial: SkillGitSource[]) {
     async begin(workspaceId, name, trigger) {
       const key = `${workspaceId}/${name}`;
       if (!rows.has(key)) return { outcome: "not_found" };
+      if (rows.get(key)?.repositorySourceId != null) {
+        return { outcome: "repository_skill" };
+      }
       if (holding.has(key)) {
         holding.set(key, trigger);
         return { outcome: "queued" };
@@ -122,11 +125,15 @@ function memorySources(initial: SkillGitSource[]) {
       const key = `${workspaceId}/${name}`;
       const row = rows.get(key);
       if (row) rows.set(key, { ...row, lastCheck: check });
+      return true;
     },
     async setEnabled(input) {
       const key = `${input.workspaceId}/${input.name}`;
       const row = rows.get(key);
       if (!row) return { outcome: "not_found" };
+      if (row.repositorySourceId !== null) {
+        return { outcome: "repository_skill" };
+      }
       if (row.syncEnabled === input.enabled) {
         return { outcome: "unchanged", source: row };
       }
@@ -138,6 +145,9 @@ function memorySources(initial: SkillGitSource[]) {
       const key = `${input.workspaceId}/${input.name}`;
       const row = rows.get(key);
       if (!row) return { outcome: "not_found" };
+      if (row.repositorySourceId !== null) {
+        return { outcome: "repository_skill" };
+      }
       const source: SkillGitSource = {
         ...row,
         autoApprove:
@@ -168,6 +178,7 @@ const source = (overrides: Partial<SkillGitSource> = {}): SkillGitSource => ({
   ref: "main",
   syncEnabled: true,
   autoApprove: { state: "off", enabledBy: null, grantId: null },
+  repositorySourceId: null,
   lastCheck: null,
   ...overrides,
 });
@@ -258,6 +269,8 @@ function setup(
     webhookUrl?: string | null;
     /** Whether the App is installed on the repository (installation 42). */
     installed?: boolean;
+    /** What the version's write answers instead of writing it. */
+    answer?: () => unknown;
   } = {},
 ) {
   const sources = memorySources(options.sources ?? [source()]);
@@ -290,6 +303,7 @@ function setup(
       }) {
         const git = input.git;
         if (!git) throw new Error("not a git registration");
+        if (options.answer) return options.answer();
         if (git.newSource) newSources.push(git.newSource);
         registered.push({
           slug: input.slug,
@@ -935,5 +949,69 @@ describe("registering from GitHub", () => {
         })
       ).outcome,
     ).toBe("registered");
+  });
+});
+
+describe("a check another one took over", () => {
+  test("is lease_lost, never checked: when the version's write found the lease gone, and when its record did", async () => {
+    const written = setup({ answer: () => ({ outcome: "lease_lost" }) });
+    expect((await written.sync.checkNow(caller(), "research")).outcome).toBe(
+      "lease_lost",
+    );
+    const resumed = setup({
+      sources: [source({ syncEnabled: false })],
+      answer: () => ({ outcome: "lease_lost" }),
+    });
+    expect((await resumed.sync.setSync(caller(), "research", true)).check).toBe(
+      "lease_lost",
+    );
+
+    const recorded = setup();
+    recorded.state.commit = null;
+    recorded.sources.store.recordCheck = async () => false;
+    expect((await recorded.sync.checkNow(caller(), "research")).outcome).toBe(
+      "lease_lost",
+    );
+  });
+});
+
+describe("a skill of a registered repository", () => {
+  const ofRepository = () =>
+    setup({
+      sources: [
+        source({
+          syncEnabled: false,
+          access: "public",
+          repositorySourceId: "019a0000-0000-7000-8000-0000000000c1",
+        }),
+      ],
+    });
+  const refused = {
+    code: "BAD_REQUEST",
+    details: { reason_code: "repository_skill" },
+  };
+
+  test("takes none of the per-skill controls: no check, no sync, no auto-approve; nothing is read or written", async () => {
+    const { sync, state, registered, sources } = ofRepository();
+    await expect(sync.checkNow(caller(), "research")).rejects.toMatchObject(
+      refused,
+    );
+    await expect(
+      sync.setSync(caller(), "research", true),
+    ).rejects.toMatchObject(refused);
+    await expect(
+      sync.setAutoApprove(caller(), "research", "on"),
+    ).rejects.toMatchObject(refused);
+    await expect(
+      sync.setAutoApprove(caller(), "research", "off"),
+    ).rejects.toMatchObject(refused);
+    expect(registered).toEqual([]);
+    expect(state.resolved).toEqual([]);
+    expect(state.branches).toEqual([]);
+    expect(sources.checks).toEqual([]);
+    expect(sources.rows.get(`${WORKSPACE}/research`)).toMatchObject({
+      syncEnabled: false,
+      autoApprove: { state: "off" },
+    });
   });
 });

@@ -237,6 +237,9 @@ export const RECEIPT_OPERATION_VALUES = [
   "register_skill_repository",
   "remove_skill_repository",
   "update_skill_repository_ref",
+  // A skill of a registered repository switched on or off (`action`): the
+  // repository, the directory and its name, never a file's content.
+  "set_skill_repository_switch",
   // Sign-in providers, by the owner. Field names and counts only: never a
   // client secret, and of a stored one the last four characters.
   "create_login_provider",

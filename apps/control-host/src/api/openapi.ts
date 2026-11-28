@@ -270,6 +270,8 @@ import {
   putSkillAutoApproveRequestSchema,
   putSkillRepositoryRefRequestSchema,
   putSkillRepositoryRefResponseSchema,
+  putSkillRepositorySkillSwitchRequestSchema,
+  putSkillRepositorySkillSwitchResponseSchema,
   putSkillSyncRequestSchema,
   putSlackAppBotsRequestSchema,
   putSlackBindingRequestSchema,
@@ -349,6 +351,7 @@ import {
   skillRepositoryDetailSchema,
   skillRepositoryListSchema,
   skillRepositoryParamsSchema,
+  skillRepositorySkillParamsSchema,
   skillSyncResponseSchema,
   skillVersionChangeResponseSchema,
   skillVersionFilesSchema,
@@ -820,6 +823,10 @@ const responseComponents = {
   CheckSkillRepositoryResponse: checkSkillRepositoryResponseSchema,
   PutSkillRepositoryRefRequest: putSkillRepositoryRefRequestSchema,
   PutSkillRepositoryRefResponse: putSkillRepositoryRefResponseSchema,
+  PutSkillRepositorySkillSwitchRequest:
+    putSkillRepositorySkillSwitchRequestSchema,
+  PutSkillRepositorySkillSwitchResponse:
+    putSkillRepositorySkillSwitchResponseSchema,
   CheckSkillResponse: checkSkillResponseSchema,
   PutSkillSyncRequest: putSkillSyncRequestSchema,
   SkillSyncResponse: skillSyncResponseSchema,
@@ -1290,6 +1297,8 @@ const EXAMPLE_SKILL_REPOSITORY_DETAIL = {
       name_shared: false,
       present: true,
       enabled: false,
+      current_version_id: null,
+      last_check: null,
       tree_sha: "9d1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
       file_count: 3,
       size_bytes: 4096,
@@ -1299,6 +1308,8 @@ const EXAMPLE_SKILL_REPOSITORY_DETAIL = {
 };
 const SKILL_REPOSITORY_LISTING =
   "The listing reads the tree of the ref's commit once and, of its contents, only the `SKILL.md` files, with the parser an upload meets: every directory holding a `SKILL.md` is one entry with its `name`, `description` and `license`. What the tree alone refuses is judged before anything is fetched and listed in the entry's `issues` (`status` `unavailable`): a symlink or a submodule (by the entry's mode), a path the checker never accepts, another `SKILL.md` below it, more than 255 files, a file over 1 MiB, more than 8 MiB together, or a `SKILL.md` over 64 KiB, which is not fetched. A name another skill of the workspace holds is `conflict`. A tree GitHub cut short, more than 200 skill directories, a skill directory whose path is over 1024 bytes (`path_too_long`), or more than 4 MiB of `SKILL.md` files to fetch (by the tree's sizes; one over 64 KiB is not fetched and not counted) refuse the whole listing.";
+const SKILL_REPOSITORY_CHECK =
+  "After a listing that reads (`listed`), every skill switched on is checked at that commit: its files are read, the checker an upload meets and then the automatic gate judge them, away from the API's event loop, and only content that passes is stored, as the skill's next version, approved and current with no person's review. The gate refuses a file that is neither UTF-8 text nor one of nine media types (`file_type`), tag characters and bidi overrides or isolates (`hidden_override`), and what gitleaks' default rules match (`secret`, by rule and path, never the value); the rest it reports (`warnings`, `notices`). Refused content is not stored, the version the skill had stays current, and the skill's `last_check` says why: `blocked`, `rejected` (the checker's `issues`), `source_missing`, `github_unavailable`, `gate_unavailable` (the gate or the scan gave no answer, which is never a pass), `withheld` (the content is a version a manager rejected or archived), `baseline_changed` (another version was approved or rejected while the gate ran) or `name_conflict`. Content that is an earlier approved version of the skill becomes its current version again. A repository whose owning account is no longer the one that registered it is not read at all (`last_sync.result` `owner_changed`): its skills keep the versions they have and take no update until it is removed and registered again. A repository that follows a branch or a tag is also checked about once a day.";
 const SKILL_MANAGERS =
   "Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`.";
 const EXAMPLE_SKILL_VERSION_ID = "7c3e9a1f-2d4b-4e6a-8f0c-5b1d3e7a9c20";
@@ -6795,7 +6806,7 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "registerSkillRepository",
     tag: "Workspace settings",
     summary: "Register a public GitHub repository for its skills",
-    description: `${SKILL_MANAGERS} Registering is the approval: no review follows. \`url\` is \`https://github.com/<owner>/<name>\`; \`ref\` is a branch, a tag or a commit SHA, and left out it is the repository's default branch as it is named now, kept by that name. The repository must be public (GitHub's \`visibility\` \`public\`; private and internal are refused) and is read with an installation of the workspace's oldest author App that has one, whether or not that installation covers it. ${SKILL_REPOSITORY_LISTING} Every skill is listed switched off, and nothing here switches one on, so no skill version is made. Registering a repository that was removed brings the same row back (\`outcome\` \`restored\`), at the ref given, with every switch off. Refused with 400 \`reason_code\` \`no_installation\`, \`repository_not_found\`, \`repository_not_public\`, \`ref_not_found\` or \`listing_refused\` (with \`details.issues\`); a repository the workspace already follows is 409 \`ALREADY_EXISTS\` \`repository_already_registered\`; GitHub unreachable or refusing the App is 502 \`GITHUB_UNAVAILABLE\`. Writes a \`register_skill_repository\` receipt with the address, the repository's and its owner's GitHub ids, the ref, the commit and the license GitHub names.`,
+    description: `${SKILL_MANAGERS} Registering is the approval: no review follows. \`url\` is \`https://github.com/<owner>/<name>\`; \`ref\` is a branch, a tag or a commit SHA, and left out it is the repository's default branch as it is named now, kept by that name. The repository must be public (GitHub's \`visibility\` \`public\`; private and internal are refused) and is read with an installation of the workspace's oldest author App that has one, whether or not that installation covers it. ${SKILL_REPOSITORY_LISTING} Every skill is listed switched off, so registering makes no skill version; a skill is switched on by its own call. Registering a repository that was removed brings the same row back (\`outcome\` \`restored\`), at the ref given, with every switch off. Refused with 400 \`reason_code\` \`no_installation\`, \`repository_not_found\`, \`repository_not_public\`, \`ref_not_found\` or \`listing_refused\` (with \`details.issues\`); a repository the workspace already follows is 409 \`ALREADY_EXISTS\` \`repository_already_registered\`; GitHub unreachable or refusing the App is 502 \`GITHUB_UNAVAILABLE\`. Writes a \`register_skill_repository\` receipt with the address, the repository's and its owner's GitHub ids, the ref, the commit and the license GitHub names.`,
     auth: "session",
     body: "RegisterSkillRepositoryRequest",
     requestExample: { url: "https://github.com/acme/skills" },
@@ -6836,7 +6847,7 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "removeSkillRepository",
     tag: "Workspace settings",
     summary: "Remove a skill repository",
-    description: `${SKILL_MANAGERS} The repository becomes \`removed\` and a listing that was running writes nothing. No row is deleted: registering the same repository again brings it back. Writes a \`remove_skill_repository\` receipt; one already removed answers \`receipt_id: null\`.`,
+    description: `${SKILL_MANAGERS} The repository becomes \`removed\` and a check that was running writes nothing: no listing, no skill version. Its skills are withdrawn: a new session leaves them out, even where an agent requires one, and a session that runs keeps the version it started with. No row and no version is deleted: registering the same repository again brings it back, every switch off. Writes a \`remove_skill_repository\` receipt; one already removed answers \`receipt_id: null\`.`,
     auth: "session",
     success: {
       status: 200,
@@ -6861,7 +6872,7 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "checkSkillRepository",
     tag: "Workspace settings",
     summary: "Read a skill repository's listing again now",
-    description: `${SKILL_MANAGERS} Resolves the ref to a commit again and reads the listing there. ${SKILL_REPOSITORY_LISTING} One listing holds a repository at a time; while it does this answers \`queued\` and the process that runs it reads once more when it ends. A read that outlasts its hold may overlap the next and writes nothing. Should the process that holds the repository stop first, or fail to start the queued read, that request may be lost; checks answer \`queued\` until its hold (5 minutes) has passed, and one made after that reads the listing. A listing that reads GitHub for longer than the request's 30 seconds answers 503 and goes on: what it read is recorded unless the repository was removed, restored or pointed elsewhere meanwhile or another check took it over, and a check queued behind it is then read. GitHub is asked whether the repository is public before any file is read and again after. \`last_sync\` records the time, who asked, the commit and the result: \`listed\`, \`source_missing\` (the ref or the repository is gone, or it is no longer public), \`rejected\` with \`issues\`, or \`github_unavailable\`. Only \`listed\` changes the skills shown. A removed repository is 400 \`repository_removed\`.`,
+    description: `${SKILL_MANAGERS} Resolves the ref to a commit again and reads the listing there. ${SKILL_REPOSITORY_LISTING} One listing holds a repository at a time; while it does this answers \`queued\` and the process that runs it reads once more when it ends. A read that outlasts its hold may overlap the next and writes nothing. Should the process that holds the repository stop first, or fail to start the queued read, that request may be lost; checks answer \`queued\` until its hold (5 minutes) has passed, and one made after that reads the listing. A listing that reads GitHub for longer than the request's 30 seconds answers 503 and goes on: what it read is recorded unless the repository was removed, restored or pointed elsewhere meanwhile or another check took it over, and a check queued behind it is then read. GitHub is asked whether the repository is public before any file is read and again after. \`last_sync\` records the time, who asked, the commit and the result: \`listed\`, \`source_missing\` (the ref or the repository is gone, or it is no longer public), \`rejected\` with \`issues\`, or \`github_unavailable\`. Only \`listed\` changes the skills shown. ${SKILL_REPOSITORY_CHECK} The answer is \`lease_lost\`, never \`checked\`, when another process took the repository over before this check had written everything. A removed repository is 400 \`repository_removed\`.`,
     auth: "session",
     success: {
       status: 200,
@@ -6878,7 +6889,7 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "putSkillRepositoryRef",
     tag: "Workspace settings",
     summary: "Point a skill repository at another ref",
-    description: `${SKILL_MANAGERS} The repository must still be public (400 \`repository_not_public\`) and GitHub must resolve \`ref\` to a commit first (400 \`ref_not_found\`; GitHub not answering is 502 \`GITHUB_UNAVAILABLE\`). The repository then follows it, a listing that was running at the old ref writes nothing, and the listing is read at the new one: \`check\` says whether it ended (\`checked\`) or waits behind a running one (\`queued\`). Writes an \`update_skill_repository_ref\` receipt with the ref before and after; the ref it already follows answers \`receipt_id: null\` and reads nothing. The listing starts even when the request's 30 seconds end just after the change commits; should the process stop between the two, or the deadline cut off the answer of the commit itself, \`last_sync\` is left as it was, and sending the same ref again reads nothing, so run a check. The repository may change while this call checks its ref: removed since, it answers 404; already at \`ref\`, 200 with \`receipt_id: null\`; restored or pointed elsewhere, 409 \`REVISION_CONFLICT\` (\`repository_changed\`) and nothing is written. An \`Idempotency-Key\` is not read: sending the call again is a new change. A removed repository is 400 \`repository_removed\`.`,
+    description: `${SKILL_MANAGERS} The repository must still be public (400 \`repository_not_public\`) and GitHub must resolve \`ref\` to a commit first (400 \`ref_not_found\`; GitHub not answering is 502 \`GITHUB_UNAVAILABLE\`). The repository then follows it, a listing that was running at the old ref writes nothing, and the listing is read at the new one, with every skill switched on checked there: \`check\` says whether it ended (\`checked\`), waits behind a running one (\`queued\`) or was taken over (\`lease_lost\`). Writes an \`update_skill_repository_ref\` receipt with the ref before and after; the ref it already follows answers \`receipt_id: null\` and reads nothing. The listing starts even when the request's 30 seconds end just after the change commits; should the process stop between the two, or the deadline cut off the answer of the commit itself, \`last_sync\` is left as it was, and sending the same ref again reads nothing, so run a check. The repository may change while this call checks its ref: removed since, it answers 404; already at \`ref\`, 200 with \`receipt_id: null\`; restored or pointed elsewhere, 409 \`REVISION_CONFLICT\` (\`repository_changed\`) and nothing is written. An \`Idempotency-Key\` is not read: sending the call again is a new change. A removed repository is 400 \`repository_removed\`.`,
     auth: "session",
     body: "PutSkillRepositoryRefRequest",
     requestExample: { ref: "v2" },
@@ -6902,6 +6913,62 @@ export const API_ROUTE_DECLARATIONS = [
         "Here no key is read; nothing was changed, so send the request again.",
       BACKEND_UNAVAILABLE:
         "Here no key is read, and a change this call committed before the deadline stands: read the repository again, and send the change again only if its ref is still not the one wanted.",
+    },
+    idempotent: false,
+  },
+  {
+    method: "put",
+    path: "/v1/workspace/skill-repositories/{id}/skills/{skill_id}/switch",
+    operationId: "putSkillRepositorySkillSwitch",
+    tag: "Workspace settings",
+    summary: "Switch a repository's skill on or off",
+    description: `${SKILL_MANAGERS} On: the skill becomes one agents can be given, once its content passes. The call takes a new grant for the switch, then reads the listing again and checks this one skill: \`check\` says whether that ended (\`checked\`), waits behind a running check (\`queued\`) or was taken over (\`lease_lost\`), and the skill's \`status\` and \`last_check\` hold the result: \`on\` with a current version, \`failed\` without one, \`checking\` before the first check has written. ${SKILL_REPOSITORY_CHECK} A check that fails leaves the switch on: the daily check and a check asked for try again. Refused with 400 \`skill_listing_refused\` (the listing's \`issues\`), \`skill_missing\` (the directory is gone from the repository) or \`repository_removed\`, and with 409 \`ALREADY_EXISTS\` \`skill_name_conflict\` when another skill of the workspace holds the name (\`details.name_owner\`). A name belongs to the first skill to have a version, so two directories of one name can both be switched on, and the later one to pass is switched off again (\`name_conflict\`). A directory with no version yet whose \`SKILL.md\` is found to name another skill is switched off too: switch it on again under the name it shows. Off: the skill is hidden. A new session leaves it out, even where an agent requires it, and a session that runs keeps the version it started with; its versions and the agents' attachments stay, and a check that was reading it writes nothing. Switching it on again takes up where it was. A repository's skill takes no approval, revert or sync setting of its own: those calls answer 400 \`repository_skill\`, and a workspace-wide attachment \`repository_skill_workspace\`. A manager can still reject its current version, and a rejected version stays out whatever the repository holds. Writes a \`set_skill_repository_switch\` receipt (\`action\` \`on\` or \`off\`) with the repository, the directory and its name and, on, the commit and the licenses; a switch already in that state answers \`receipt_id: null\` and checks nothing. A check that runs for longer than the request's 30 seconds answers 503 and goes on, as a listing does. An \`Idempotency-Key\` is not read.`,
+    auth: "session",
+    body: "PutSkillRepositorySkillSwitchRequest",
+    requestExample: { enabled: true },
+    success: {
+      status: 200,
+      schema: "PutSkillRepositorySkillSwitchResponse",
+      description: "The repository and its skills after the change.",
+      example: {
+        repository: EXAMPLE_SKILL_REPOSITORY,
+        skills: [
+          {
+            ...EXAMPLE_SKILL_REPOSITORY_DETAIL.skills[0],
+            status: "on",
+            name_owner: "github",
+            enabled: true,
+            current_version_id: EXAMPLE_SKILL_VERSION_ID,
+            last_check: {
+              at: "2026-11-28T09:05:00.000Z",
+              trigger: { kind: "enable", user_id: EXAMPLE_USER_ID },
+              commit: "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+              result: "passed",
+              version_id: EXAMPLE_SKILL_VERSION_ID,
+              issues: [],
+              blocks: [],
+              warnings: [
+                {
+                  rule: "license_notice_missing",
+                  paths: ["skills/release-notes/SKILL.md"],
+                  samples: [],
+                },
+              ],
+              notices: [],
+            },
+          },
+        ],
+        receipt_id: EXAMPLE_RECEIPT_ID,
+        check: "checked",
+      },
+    },
+    errors: [400, 401, 403, 404, 409, 503],
+    errorCodes: { 409: ["ALREADY_EXISTS"] },
+    errorNotes: {
+      REQUEST_TIMEOUT:
+        "Here no key is read; nothing was changed, so send the request again.",
+      BACKEND_UNAVAILABLE:
+        "Here no key is read, and a change this call committed before the deadline stands: read the repository again, and send the change again only if the switch is still not as wanted.",
     },
     idempotent: false,
   },
@@ -10224,6 +10291,8 @@ const PATH_PARAMETER_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "secrets/{purpose}": "Which of the Slack app's secrets.",
   "sessions/{id}": "The session's id.",
   "skill-repositories/{id}": "The skill repository's id.",
+  "skills/{skill_id}":
+    "The listed skill directory's id, as the repository's `skills` give it.",
   "skills/{name}": "The skill's name.",
   "slack-bindings/{binding_id}": "The Slack binding's id.",
   "teams/{team_id}": "The team's id.",
@@ -10316,6 +10385,8 @@ function paramsSchemaFor(path: string): z.ZodObject {
     return workspaceVariableParamsSchema;
   if (path.startsWith("/v1/workspace/mcp-servers/{id}"))
     return workspaceMcpServerParamsSchema;
+  if (path.startsWith("/v1/workspace/skill-repositories/{id}/skills/"))
+    return skillRepositorySkillParamsSchema;
   if (path.startsWith("/v1/workspace/skill-repositories/{id}"))
     return skillRepositoryParamsSchema;
   if (path.startsWith("/v1/workspace/skills/versions/{id}"))

@@ -222,6 +222,7 @@ import {
   wireGitHubSkillReader,
   wireGitPusher,
 } from "../wiring/github-api.ts";
+import { gitleaksScanner } from "../wiring/gitleaks.ts";
 import { createInstallationConfigSource } from "../wiring/installation-config.ts";
 import { wireM1JudgmentRunner } from "../wiring/m1-judgments.ts";
 import {
@@ -229,6 +230,7 @@ import {
   wireReleaseInstructions,
 } from "../wiring/release-instructions.ts";
 import { releaseStartableIn } from "../wiring/release-startable.ts";
+import { skillGateProcess } from "../wiring/skill-gate.ts";
 import { renderedHostExtractor } from "../wiring/skill-hosts.ts";
 import {
   type SlackServicesStageDeps,
@@ -290,6 +292,7 @@ import {
   serveOperatorConversationTurns,
 } from "./conversation-runtime.ts";
 import { PostgresConversationTurnNotifier } from "./conversation-turn-notifier.ts";
+import { workerEgressHosts } from "./egress-allowlist.ts";
 import {
   createEgressAuthorizer,
   egressAuthorizerConfigFromEnv,
@@ -349,6 +352,7 @@ import {
   registerAgentRoutes,
 } from "./routes/agents/agents.ts";
 import {
+  checkBeyondRequest,
   listingBeyondRequest,
   registerSkillRepositoryRoutes,
 } from "./routes/extensions/skill-repositories.ts";
@@ -1566,17 +1570,29 @@ const skillObjects = extensionBundleObjects(checkpointStorage);
 // One host reader for auto-approve and the review screen, so they agree.
 const skillHosts = renderedHostExtractor;
 const skillReader = wireGitHubSkillReader({ logger });
-const skillGitSync =
+// Versions from GitHub, a skill's own source and a registered repository's
+// alike. The gate judges only the repository's: the rules and the secret
+// scan, each in a child process of its own.
+const skillBundles =
   skillObjects === undefined
+    ? undefined
+    : createExtensionBundleService({
+        store: createPostgresExtensionBundleStore(db),
+        objects: skillObjects,
+        hosts: skillHosts,
+        gate: {
+          runner: skillGateProcess(),
+          secrets: gitleaksScanner(),
+          allowedHosts: () => workerEgressHosts(process.env),
+        },
+      });
+const skillGitSync =
+  skillBundles === undefined
     ? undefined
     : createSkillGitSync({
         authorization,
         sources: createPostgresSkillGitSourceStore(db),
-        bundles: createExtensionBundleService({
-          store: createPostgresExtensionBundleStore(db),
-          objects: skillObjects,
-          hosts: skillHosts,
-        }),
+        bundles: skillBundles,
         reader: skillReader,
         apps: (workspaceId) =>
           githubAppStore.credentials("author", workspaceId),
@@ -1607,7 +1623,7 @@ const skillRepositoryListing = listingBeyondRequest(
   (workspaceId: string) => githubAppStore.credentials("author", workspaceId),
 );
 const skillRepositories =
-  skillObjects === undefined
+  skillBundles === undefined
     ? undefined
     : createSkillRepositoryService({
         authorization,
@@ -1615,7 +1631,26 @@ const skillRepositories =
         reader: skillReader,
         apps: skillRepositoryListing.apps,
         installations: (app) => githubAppDirectory.installations(app),
+        bundles: checkBeyondRequest(skillBundles),
+        // No error message: a store's can quote what a check found in a file.
+        failed: (error, fields) =>
+          logger.warn("A skill repository check failed", {
+            ...fields,
+            error_name: error instanceof Error ? error.name : typeof error,
+          }),
       });
+if (skillRepositories !== undefined) {
+  // Beside the per-skill pass above: a repository's listing and every skill
+  // switched on in it, about once a day.
+  const daily = () => {
+    void skillRepositories.daily().catch((error: unknown) =>
+      logger.warn("The daily skill repository check failed", {
+        error_name: error instanceof Error ? error.name : typeof error,
+      }),
+    );
+  };
+  setInterval(daily, SKILL_DAILY_CHECK_PASS_MS).unref();
+}
 const skills =
   skillObjects === undefined
     ? undefined

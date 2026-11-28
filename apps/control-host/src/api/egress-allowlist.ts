@@ -38,6 +38,28 @@ export function parseEgressAllowlist(
     });
 }
 
+/** The allowlists a worker's own traffic is held to, as the api is given them. */
+export const WORKER_EGRESS_LISTS = [
+  "EGRESS_PRIVATE_ALLOWLIST",
+  "EGRESS_ALLOWLIST",
+] as const;
+
+/**
+ * The hosts on the worker egress allowlists: what a skill's gate compares a
+ * script's hosts with, as text. The proxy's own verdict also reads the port
+ * and the address the name resolves to, so a host listed here is shown as
+ * allowlisted, not as reachable.
+ */
+export function workerEgressHosts(
+  env: Readonly<Record<string, string | undefined>>,
+): ReadonlySet<string> {
+  return new Set(
+    WORKER_EGRESS_LISTS.flatMap((name) =>
+      parseEgressAllowlist(env[name]).map((entry) => entry.host),
+    ),
+  );
+}
+
 /** `host:port` as hostPortOf writes a URL's, IPv6 without brackets. */
 export const entryHostPort = (entry: EgressAllowlistEntry): string =>
   `${entry.host}:${entry.port}`;

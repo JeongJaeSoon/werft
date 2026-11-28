@@ -49,7 +49,7 @@ export function repositoryRootFiles(
 }
 
 /** Text as PostgreSQL holds it: no NUL, a lone surrogate replaced. */
-const storable = (text: string) =>
+export const storable = (text: string) =>
   text.replaceAll("\0", "").replace(/\p{Cs}/gu, "\u{FFFD}");
 
 const directoryOf = (skillFile: string) =>

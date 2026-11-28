@@ -2164,6 +2164,13 @@
       "when": 1795854524262,
       "tag": "0399_task_clock_thread_posts",
       "breakpoints": true
+    },
+    {
+      "idx": 403,
+      "version": "7",
+      "when": 1795860450373,
+      "tag": "0403_skill_repository_sync_off",
+      "breakpoints": true
     }
   ]
 }

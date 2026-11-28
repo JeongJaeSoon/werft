@@ -576,6 +576,7 @@ describe("OpenAPI document", () => {
         "/v1/workspace/skill-repositories/{id}",
         "/v1/workspace/skill-repositories/{id}/check",
         "/v1/workspace/skill-repositories/{id}/ref",
+        "/v1/workspace/skill-repositories/{id}/skills/{skill_id}/switch",
         "/v1/workspace/skills",
         "/v1/workspace/skills/github",
         "/v1/workspace/skills/versions/{id}/archive",
