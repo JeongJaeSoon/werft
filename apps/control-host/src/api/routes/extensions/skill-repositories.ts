@@ -24,9 +24,10 @@ import { mapped, requireParams } from "../errors.ts";
 
 /**
  * The store and the App lookup as a listing uses them, each call under a
- * deadline of its own: a listing whose request timed out, while it read
- * GitHub or just after a ref change committed, still starts, records what it
- * read, runs the check queued behind it and lets the repository go.
+ * deadline of its own: a listing whose request timed out while it read
+ * GitHub still records what it read, runs the check queued behind it and
+ * lets the repository go, and the listing a ref change owes still starts. A
+ * check someone asked for starts only within its request.
  */
 export function listingBeyondRequest<
   S extends Pick<SkillRepositoryStore, "begin" | "find" | "record" | "finish">,
@@ -36,7 +37,13 @@ export function listingBeyondRequest<
   return {
     store: {
       ...store,
-      begin: beyondRequest(store.begin),
+      begin: ((workspaceId, id, trigger, leaseMs) =>
+        (trigger.kind === "ref" ? beyondRequest(store.begin) : store.begin)(
+          workspaceId,
+          id,
+          trigger,
+          leaseMs,
+        )) as SkillRepositoryStore["begin"],
       find: beyondRequest(store.find),
       record: beyondRequest(store.record),
       finish: beyondRequest(store.finish),

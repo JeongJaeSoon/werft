@@ -312,6 +312,7 @@ describe("a listing past its request's deadline", () => {
         left[name] = currentDeadline()?.remainingMs() ?? Number.NaN;
         return value;
       };
+    const manual = { kind: "manual" as const, userId: ADMIN };
     const store = {
       find: noting("find", null),
       record: noting("record", true),
@@ -325,15 +326,18 @@ describe("a listing past its request's deadline", () => {
       new RequestDeadline(performance.now() - 1),
       async () => {
         await wired.store.setRef();
-        await wired.store.begin(WORKSPACE, ID, { kind: "daily" } as never, 1);
+        await wired.store.begin(WORKSPACE, ID, manual, 1);
+        left["manual"] = left["begin"] ?? Number.NaN;
+        await wired.store.begin(WORKSPACE, ID, { ...manual, kind: "ref" }, 1);
         await wired.store.find(WORKSPACE, ID);
         await wired.apps();
         await wired.store.record({} as never);
         await wired.store.finish(WORKSPACE, ID, 1, "t");
       },
     );
-    // A change itself is still bound by the request that asked for it.
+    // A change, and a check someone asks for, start only within the request.
     expect(left["setRef"]).toBeLessThanOrEqual(0);
+    expect(left["manual"]).toBeLessThanOrEqual(0);
     for (const name of ["begin", "find", "apps", "record", "finish"]) {
       expect(left[name]).toBeGreaterThan(0);
     }
