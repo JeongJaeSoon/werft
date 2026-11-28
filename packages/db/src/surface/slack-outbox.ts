@@ -1359,10 +1359,16 @@ export function createPostgresSlackOutboxStore(
               )
               -- A progress message that went up says the work closed
               -- first, even one its link stopped keeping: the link takes no
-              -- update once closed. A revoked install takes none, so it is
-              -- not waited for.
-              AND (NOT (${keepsProgressMessage(sql.raw("l2"))}
-                OR ${endsProgressMessage(sql.raw("l2"))}) OR EXISTS (
+              -- update once closed. One still being sent may yet be up, so
+              -- it is waited for (its lease bounds the wait). A revoked
+              -- install takes none, so it is not waited for.
+              AND ((NOT (${keepsProgressMessage(sql.raw("l2"))}
+                OR ${endsProgressMessage(sql.raw("l2"))}) AND NOT EXISTS (
+                SELECT 1 FROM ${t} p
+                WHERE p.installation_id = l2.installation_id
+                  AND p.progress_key = 'progress:' || l2.id
+                  AND p.status = 'sending'
+              )) OR EXISTS (
                 SELECT 1 FROM slack_installations ri
                 WHERE ri.id = l2.installation_id AND ri.status = 'revoked'
               ) OR NOT EXISTS (

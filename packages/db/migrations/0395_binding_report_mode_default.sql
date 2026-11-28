@@ -2,8 +2,10 @@
 -- thread then hears by its agent's conversation rollout: progress when on,
 -- per_step while off or shadow, as before. No writer ever set the column
 -- (0326 added it with the per_step default and nothing wrote it since), so
--- every per_step stored is that default and goes back to null here. A null
--- reads as per_step on an older image too. surface_bindings is small. The
+-- every per_step stored is that default and goes back to null here. An image
+-- from before DM report modes reads a null as per_step; one with them reads
+-- it as progress under rollout on, so run before the new image, on channels
+-- move to progress early. surface_bindings is small. The
 -- runner applies it once, in one transaction; its statements fail on nothing
 -- when run again, but the UPDATE would then clear a per_step a person picked
 -- since.

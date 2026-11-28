@@ -8196,6 +8196,55 @@ describe.each(ENGINES)("a progress link's progress message on %s", (engine) => {
     expect(postedLines()).toEqual([ko.progressRunning]);
   });
 
+  test("a first progress post still being sent holds its thread's close when the thread moves off progress", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await db.update(surfaceBindings).set({ reportMode: "progress" });
+    await setTurn(sessionId, "running");
+    await outboxPass({ botToken: null });
+    // Another pass has it on its way to Slack.
+    await db
+      .update(slackOutbox)
+      .set({
+        status: "sending",
+        claimToken: randomUUID(),
+        leaseExpiresAt: sql`now() + interval '1 minute'`,
+      })
+      .where(eq(slackOutbox.kind, "progress"));
+    await db.update(surfaceBindings).set({ reportMode: "per_step" });
+    await endTurn(sessionId, 1, "completed", [[text("Done.")]]);
+    await db
+      .update(sessions)
+      .set({ admissionState: "closed", status: "stopped" })
+      .where(eq(sessions.id, sessionId));
+    await outboxPass({ closeLinks: true });
+    let [link] = await db.select().from(sessionLinks);
+    expect(link?.closedAt).toBeNull();
+
+    // Slack took it: the message gets its end before the thread closes.
+    await db
+      .update(slackOutbox)
+      .set({
+        status: "sent",
+        slackTs: "1792800010.000500",
+        claimToken: null,
+        leaseExpiresAt: null,
+      })
+      .where(eq(slackOutbox.kind, "progress"));
+    for (let pass = 0; pass < 3; pass += 1) {
+      await intervalOver();
+      await outboxPass({ closeLinks: true });
+    }
+    expect(
+      (await progressRows()).some(({ dedupeKey }) =>
+        dedupeKey.includes(":closed:"),
+      ),
+    ).toBe(true);
+    [link] = await db.select().from(sessionLinks);
+    expect(link?.closedAt).not.toBeNull();
+  });
+
   test("a first progress post that never went up gets no end once its thread moves off progress", async () => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);

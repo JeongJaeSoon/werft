@@ -570,6 +570,9 @@ export function SlackChannels({
                 aria-label={t("slack.connectedChannels")}
                 columns={COLUMNS}
                 align={["start", "start", "start", "end", "end"]}
+                // On a phone each channel is a card: five columns do not fit.
+                narrowAt={640}
+                narrowCards
                 framed
               >
                 <GridTableHeader>
@@ -661,7 +664,7 @@ export function SlackChannels({
                           {meta}
                         </div>
                       </GridTableCell>
-                      <GridTableCell>
+                      <GridTableCell cardLabel={t("slack.listenColumn")}>
                         {manages &&
                         row.status !== "left" &&
                         row.status !== "gone" ? (
@@ -705,7 +708,7 @@ export function SlackChannels({
                           </Text>
                         )}
                       </GridTableCell>
-                      <GridTableCell>
+                      <GridTableCell cardLabel={t("slack.reportColumn")}>
                         {manages &&
                         row.status !== "left" &&
                         row.status !== "gone" ? (
@@ -755,7 +758,7 @@ export function SlackChannels({
                           </Text>
                         )}
                       </GridTableCell>
-                      <GridTableCell>
+                      <GridTableCell cardLabel={t("slack.capColumn")}>
                         {manages &&
                         row.status !== "left" &&
                         row.status !== "gone" ? (
@@ -780,7 +783,7 @@ export function SlackChannels({
                           </Text>
                         )}
                       </GridTableCell>
-                      <GridTableCell>
+                      <GridTableCell cardLabel={t("slack.useColumn")}>
                         {
                           // A left or gone binding takes no input and sends
                           // nothing, so a switch that reads "on" would be a lie.
