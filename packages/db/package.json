@@ -1,6 +1,6 @@
 {
   "name": "@werft-ai/db",
-  "description": "Drizzle schema, migrations and the PostgreSQL stores of every domain",
+  "description": "Drizzle schema, migrations and the PostgreSQL stores",
   "version": "0.0.0",
   "private": true,
   "license": "PolyForm-Small-Business-1.0.0",
