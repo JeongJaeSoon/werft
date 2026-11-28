@@ -306,6 +306,19 @@ describe("listing a skill repository", () => {
     expect(JSON.stringify(entries)).not.toContain("\\u0000");
   });
 
+  test("a lone surrogate, in a value or cut into an issue's text, is replaced", async () => {
+    const { entries } = await listed({
+      "a/SKILL.md": '---\nname: a\ndescription: "a\\ud800b"\n---\nBody.\n',
+      // The line an issue quotes is cut at 60 units, inside the pair.
+      "b/SKILL.md": skillFile("b", `${"x".repeat(59)}😀 tail\n`),
+    });
+    expect(entries[0]).toMatchObject({ description: "a\u{FFFD}b", issues: [] });
+    expect(entries[1]?.issues).toHaveLength(1);
+    expect(
+      entries.flatMap((entry) => entry.issues).map(({ message }) => message),
+    ).not.toContainEqual(expect.stringMatching(/\p{Cs}/u));
+  });
+
   test("the same name in two directories is listed twice", async () => {
     const { entries } = await listed({
       "one/SKILL.md": skillFile("same"),
@@ -322,6 +335,21 @@ describe("listing a skill repository", () => {
 });
 
 describe("a repository past what a listing reads", () => {
+  test("a skill directory's path is at most 1024 bytes; past it nothing is read", async () => {
+    const at = (bytes: number) => ({
+      [`${"p".repeat(bytes)}/SKILL.md`]: skillFile("a"),
+    });
+    expect(
+      (await listed(at(SKILL_REPOSITORY_LIMITS.maxPathBytes))).entries,
+    ).toHaveLength(1);
+    const past = treeOf(at(SKILL_REPOSITORY_LIMITS.maxPathBytes + 1));
+    expect(await listSkillRepository(past.tree, past.readBlobs)).toMatchObject({
+      kind: "refused",
+      issues: [{ code: "path_too_long" }],
+    });
+    expect(past.asked).toEqual([]);
+  });
+
   test("a tree GitHub cut short is refused before any content is read", async () => {
     const built = treeOf({ "a/SKILL.md": skillFile("a") });
     expect(

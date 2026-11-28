@@ -1296,6 +1296,10 @@ function installationRepositoryOf(repository: {
 
 const SKILL_BLOB_READS = 4;
 
+/** A string PostgreSQL text holds as it is: no NUL, no lone surrogate. */
+const plain = (value: unknown): value is string =>
+  typeof value === "string" && !value.includes("\0") && !/\p{Cs}/u.test(value);
+
 /** A repository answer, kept only with the owner's id GitHub always sends. */
 function skillRepositoryOf(data: unknown): GitHubSkillRepository {
   const repo = data as {
@@ -1309,12 +1313,12 @@ function skillRepositoryOf(data: unknown): GitHubSkillRepository {
   const id = Number(repo.id);
   const ownerId = Number(repo.owner?.id);
   if (
-    typeof repo.full_name !== "string" ||
+    !plain(repo.full_name) ||
     !Number.isSafeInteger(id) ||
     id <= 0 ||
     !Number.isSafeInteger(ownerId) ||
     ownerId <= 0 ||
-    typeof repo.default_branch !== "string"
+    !plain(repo.default_branch)
   ) {
     throw new Error(
       "GitHub answered a repository without its id, owner or default branch",
@@ -1329,10 +1333,7 @@ function skillRepositoryOf(data: unknown): GitHubSkillRepository {
     public: repo.visibility === "public",
     defaultBranch: repo.default_branch,
     // GitHub's NOASSERTION is a license file it could not name.
-    license:
-      typeof spdx === "string" && spdx !== "" && spdx !== "NOASSERTION"
-        ? spdx
-        : null,
+    license: plain(spdx) && spdx !== "" && spdx !== "NOASSERTION" ? spdx : null,
   };
 }
 
@@ -1421,9 +1422,8 @@ export function createGitHubSkillReader(
     const { path, mode, type, sha } = item;
     const size = type === "blob" ? item.size : 0;
     if (
-      typeof path !== "string" ||
+      !plain(path) ||
       path === "" ||
-      path.includes("\0") ||
       typeof sha !== "string" ||
       !SHA.test(sha) ||
       typeof mode !== "string" ||
@@ -1457,7 +1457,11 @@ export function createGitHubSkillReader(
             id: repositoryId,
             headers,
           });
-          return skillRepositoryOf(data);
+          const found = skillRepositoryOf(data);
+          if (found.id !== repositoryId) {
+            throw new Error("GitHub answered another repository than asked");
+          }
+          return found;
         }),
       ),
 
@@ -1582,15 +1586,27 @@ export function createGitHubSkillReader(
             "GET /repositories/{id}/git/commits/{sha}",
             { id: repositoryId, sha: commit, headers },
           );
-          const sha = (head as { tree?: { sha?: unknown } }).tree?.sha;
-          if (typeof sha !== "string" || !SHA.test(sha)) {
-            throw new Error("GitHub answered a commit without its tree");
+          const answered = head as { sha?: unknown; tree?: { sha?: unknown } };
+          const sha = answered.tree?.sha;
+          if (
+            answered.sha !== commit ||
+            typeof sha !== "string" ||
+            !SHA.test(sha)
+          ) {
+            throw new Error("GitHub answered another commit, or no tree");
           }
           const { data } = await request(
             "GET /repositories/{id}/git/trees/{sha}",
             { id: repositoryId, sha, recursive: "1", headers },
           );
-          const listed = data as { tree: unknown[]; truncated?: boolean };
+          const listed = data as {
+            sha?: unknown;
+            tree: unknown[];
+            truncated?: boolean;
+          };
+          if (listed.sha !== sha) {
+            throw new Error("GitHub answered another tree than asked");
+          }
           const entries = listed.tree.map((item) =>
             treeEntryOf(item as Parameters<typeof treeEntryOf>[0]),
           );

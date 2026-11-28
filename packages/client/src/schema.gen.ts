@@ -3466,7 +3466,7 @@ export interface paths {
         put?: never;
         /**
          * Read a skill repository's listing again now
-         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. Resolves the ref to a commit again and reads the listing there. The listing reads the tree of the ref's commit once and, of its contents, only the `SKILL.md` files, with the parser an upload meets: every directory holding a `SKILL.md` is one entry with its `name`, `description` and `license`. What the tree alone refuses is judged before anything is fetched and listed in the entry's `issues` (`status` `unavailable`): a symlink or a submodule (by the entry's mode), a path the checker never accepts, another `SKILL.md` below it, more than 255 files, a file over 1 MiB, more than 8 MiB together, or a `SKILL.md` over 64 KiB, which is not fetched. A name another skill of the workspace holds is `conflict`. A tree GitHub cut short, more than 200 skill directories, or `SKILL.md` files over 4 MiB together refuse the whole listing. One listing runs per repository at a time; while one runs this answers `queued` and the process that runs it reads once more when it ends; should that process stop first, nothing reads the listing until the next check. GitHub is asked whether the repository is public before any file is read and again after. `last_sync` records the time, who asked, the commit and the result: `listed`, `source_missing` (the ref or the repository is gone, or it is no longer public), `rejected` with `issues`, or `github_unavailable`. Only `listed` changes the skills shown. A removed repository is 400 `repository_removed`.
+         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. Resolves the ref to a commit again and reads the listing there. The listing reads the tree of the ref's commit once and, of its contents, only the `SKILL.md` files, with the parser an upload meets: every directory holding a `SKILL.md` is one entry with its `name`, `description` and `license`. What the tree alone refuses is judged before anything is fetched and listed in the entry's `issues` (`status` `unavailable`): a symlink or a submodule (by the entry's mode), a path the checker never accepts, another `SKILL.md` below it, more than 255 files, a file over 1 MiB, more than 8 MiB together, or a `SKILL.md` over 64 KiB, which is not fetched. A name another skill of the workspace holds is `conflict`. A tree GitHub cut short, more than 200 skill directories, or `SKILL.md` files over 4 MiB together refuse the whole listing. One listing runs per repository at a time; while one runs this answers `queued` and the process that runs it reads once more when it ends. Should that process stop first, the queued request is lost and checks keep answering `queued` until its hold (5 minutes) has passed; a check made after that reads the listing. GitHub is asked whether the repository is public before any file is read and again after. `last_sync` records the time, who asked, the commit and the result: `listed`, `source_missing` (the ref or the repository is gone, or it is no longer public), `rejected` with `issues`, or `github_unavailable`. Only `listed` changes the skills shown. A removed repository is 400 `repository_removed`.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -3487,7 +3487,7 @@ export interface paths {
         get?: never;
         /**
          * Point a skill repository at another ref
-         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. The repository must still be public (400 `repository_not_public`) and GitHub must resolve `ref` to a commit first (400 `ref_not_found`; GitHub not answering is 502 `GITHUB_UNAVAILABLE`). The repository then follows it, a listing that was running at the old ref writes nothing, and the listing is read at the new one: `check` says whether it ended (`checked`) or waits behind a running one (`queued`). Writes an `update_skill_repository_ref` receipt with the ref before and after; the ref it already follows answers `receipt_id: null` and reads nothing. Should the process stop between the change and its listing, `last_sync` still shows the old ref's commit until the next check. A removed repository is 400 `repository_removed`.
+         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. The repository must still be public (400 `repository_not_public`) and GitHub must resolve `ref` to a commit first (400 `ref_not_found`; GitHub not answering is 502 `GITHUB_UNAVAILABLE`). The repository then follows it, a listing that was running at the old ref writes nothing, and the listing is read at the new one: `check` says whether it ended (`checked`) or waits behind a running one (`queued`). Writes an `update_skill_repository_ref` receipt with the ref before and after; the ref it already follows answers `receipt_id: null` and reads nothing. Should the process stop between the change and its listing, `last_sync` is left as it was; sending the same ref again reads nothing, so run a check. A removal, a restore or another ref change that lands while this one checks its ref answers 409 `REVISION_CONFLICT` (`repository_changed`) and writes nothing. A removed repository is 400 `repository_removed`.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** required.
          */
@@ -13069,7 +13069,7 @@ export interface components {
                 has_scripts: boolean;
             }[];
             /**
-             * @description `queued`: a listing of the repository was running, and the process that runs it reads once more when it ends. Should that process stop first, the next check reads the listing.
+             * @description `queued`: a listing of the repository was running, and the process that runs it reads once more when it ends. Should that process stop first, the request is lost: a check made once its hold (5 minutes) has passed reads the listing.
              * @enum {string}
              */
             outcome: "checked" | "queued";
@@ -39193,6 +39193,21 @@ export interface operations {
                         error?: {
                             /** @enum {string} */
                             code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REVISION_CONFLICT";
                         };
                     };
                 };

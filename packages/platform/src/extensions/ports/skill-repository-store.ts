@@ -114,6 +114,8 @@ export type RemoveSkillRepositoryResult =
 export type SetSkillRepositoryRefResult =
   | { outcome: "updated"; repository: SkillRepository; receiptId: string }
   | { outcome: "unchanged"; repository: SkillRepository }
+  /** Removed, restored or pointed elsewhere since the ref was checked. */
+  | { outcome: "changed" }
   /** No such repository, or it is removed. */
   | { outcome: "not_found" }
   | Refused;
@@ -151,9 +153,13 @@ export interface SkillRepositoryStore {
   ): Promise<RegisterSkillRepositoryResult>;
   /** Marks it removed under a new generation, with `remove_skill_repository`. */
   remove(input: Managed & { id: string }): Promise<RemoveSkillRepositoryResult>;
-  /** Points it at `ref` under a new generation, with `update_skill_repository_ref`. */
+  /**
+   * Points it at `ref` under a new generation, with
+   * `update_skill_repository_ref`; `generation` is the one the ref was
+   * checked under.
+   */
   setRef(
-    input: Managed & { id: string; ref: string },
+    input: Managed & { id: string; ref: string; generation: number },
   ): Promise<SetSkillRepositoryRefResult>;
   /**
    * Takes an active repository for a listing until `leaseMs` from now under

@@ -508,6 +508,8 @@ export function createPostgresSkillRepositoryStore(
         if (row.ref === input.ref) {
           return { outcome: "unchanged", repository: await withCount(tx, row) };
         }
+        // The ref was resolved against the row as it was then.
+        if (row.generation !== input.generation) return { outcome: "changed" };
         const [updated] = await tx
           .update(skillRepositories)
           .set({

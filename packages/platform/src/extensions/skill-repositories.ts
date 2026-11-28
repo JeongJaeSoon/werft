@@ -546,11 +546,19 @@ export function createSkillRepositoryService(deps: SkillRepositoryServiceDeps) {
         workspaceId: caller.ownerId,
         id,
         ref,
+        generation: before.generation,
         receiptId: newId(),
         principal: caller,
         managerRoles: EXTENSION_MANAGER_ROLES,
       });
       switch (result.outcome) {
+        case "changed":
+          throw new SessionServiceError(
+            "REVISION_CONFLICT",
+            "The repository changed while its ref was checked; send the change again",
+            undefined,
+            { reason_code: "repository_changed" },
+          );
         case "not_found":
           throw NOT_FOUND();
         case "actor_inactive":

@@ -420,8 +420,22 @@ describe("reading a public repository the installation does not cover", () => {
         ?.id ?? 0;
     const head =
       (await other.refs("anthropics", "open"))["refs/heads/main"] ?? "";
+    const real = await reader.tree(otherApp(), INSTALLATION, id, head);
+    const root = real?.sha ?? "";
     const sha = "a".repeat(40);
-    const file = { path: "SKILL.md", mode: "100644", type: "blob", sha };
+    const file = {
+      path: "SKILL.md",
+      mode: "100644",
+      type: "blob",
+      sha,
+    } as const;
+    const answer = (tree: unknown[], of = root) =>
+      other.answerNext(/^\/git\/trees\//, { sha: of, tree, truncated: false });
+    // One entry as git holds it is read; each of the others is not.
+    answer([{ ...file, size: 1 }]);
+    expect(
+      (await reader.tree(otherApp(), INSTALLATION, id, head))?.entries,
+    ).toEqual([{ ...file, size: 1 }]);
     const trees: unknown[][] = [
       [{ ...file, size: -1 }],
       [{ ...file, size: "12" }],
@@ -431,20 +445,39 @@ describe("reading a public repository the installation does not cover", () => {
       [{ ...file, type: "commit", size: 1 }],
       [{ ...file, sha: "short", size: 1 }],
       [{ ...file, path: "a\0b", size: 1 }],
+      [{ ...file, path: `a${String.fromCharCode(0xd800)}b`, size: 1 }],
       [
         { ...file, size: 1 },
         { ...file, size: 1 },
       ],
     ];
     for (const tree of trees) {
-      other.answerNext(/^\/git\/trees\//, { sha, tree, truncated: false });
+      answer(tree);
       await expect(
         reader.tree(otherApp(), INSTALLATION, id, head),
       ).rejects.toBeInstanceOf(GitHubAppCheckError);
     }
-    const tree = await reader.tree(otherApp(), INSTALLATION, id, head);
+    // Another tree, another commit or another repository than the one asked.
+    answer([], sha);
+    await expect(
+      reader.tree(otherApp(), INSTALLATION, id, head),
+    ).rejects.toBeInstanceOf(GitHubAppCheckError);
+    other.answerNext(/^\/git\/commits\//, { sha, tree: { sha: root } });
+    await expect(
+      reader.tree(otherApp(), INSTALLATION, id, head),
+    ).rejects.toBeInstanceOf(GitHubAppCheckError);
+    other.answerNext(/^$/, {
+      id: id + 1,
+      full_name: "anthropics/open",
+      owner: { id: 1 },
+      visibility: "public",
+      default_branch: "main",
+    });
+    await expect(
+      reader.repositoryById(otherApp(), INSTALLATION, id),
+    ).rejects.toBeInstanceOf(GitHubAppCheckError);
     const skill =
-      tree?.entries.find((entry) => entry.path === "skills/pdf/SKILL.md")
+      real?.entries.find((entry) => entry.path === "skills/pdf/SKILL.md")
         ?.sha ?? "";
     other.answerNext(/^\/git\/blobs\//, {
       sha: skill,

@@ -283,6 +283,7 @@ describe("workspace skill repositories", () => {
     for (const [code, reason, expected] of [
       ["BAD_REQUEST", "ref_not_found", 400],
       ["NOT_FOUND", undefined, 404],
+      ["REVISION_CONFLICT", "repository_changed", 409],
       ["GITHUB_UNAVAILABLE", "github_rejected", 502],
     ] as const) {
       expect(

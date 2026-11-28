@@ -22,6 +22,8 @@ export const SKILL_REPOSITORY_LIMITS = {
   maxSkillFileBytes: 64 * 1024,
   /** Every SKILL.md of one listing together. */
   maxListingBytes: 4 * 1024 * 1024,
+  /** A skill directory's path in UTF-8: the listing keys its rows by it. */
+  maxPathBytes: 1024,
 } as const;
 
 const MAX_ISSUES = 20;
@@ -45,6 +47,13 @@ export function repositoryRootFiles(
     .map((entry) => entry.path)
     .sort();
 }
+
+/** Text as PostgreSQL holds it: no NUL, a lone surrogate replaced. */
+const storable = (text: string) =>
+  text.replaceAll("\0", "").replace(/\p{Cs}/gu, "\u{FFFD}");
+
+const directoryOf = (skillFile: string) =>
+  skillFile.slice(0, -"SKILL.md".length).replace(/\/$/, "");
 
 const refused = (code: string, message: string): SkillListing => ({
   kind: "refused",
@@ -73,6 +82,19 @@ export async function listSkillRepository(
       `A repository lists at most ${SKILL_REPOSITORY_LIMITS.maxSkills} skill directories`,
     );
   }
+  const encoder = new TextEncoder();
+  if (
+    skillFiles.some(
+      (file) =>
+        encoder.encode(directoryOf(file.path)).byteLength >
+        SKILL_REPOSITORY_LIMITS.maxPathBytes,
+    )
+  ) {
+    return refused(
+      "path_too_long",
+      `A skill directory's path is at most ${SKILL_REPOSITORY_LIMITS.maxPathBytes} bytes`,
+    );
+  }
   const trees = new Map(
     tree.entries
       .filter((entry) => entry.type === "tree")
@@ -81,7 +103,7 @@ export async function listSkillRepository(
   const files = tree.entries.filter((entry) => entry.type !== "tree");
 
   const candidates = skillFiles.map((file) => {
-    const path = file.path.slice(0, -"SKILL.md".length).replace(/\/$/, "");
+    const path = directoryOf(file.path);
     const prefix = path === "" ? "" : `${path}/`;
     const inside = files
       .filter((entry) => entry.path.startsWith(prefix))
@@ -185,7 +207,8 @@ export async function listSkillRepository(
     // A NUL is nothing PostgreSQL stores in text: the value is not shown.
     const shown = (field: "description" | "license") => {
       const value = read?.[field] ?? null;
-      if (value === null || !value.includes("\0")) return value;
+      if (value === null) return null;
+      if (!value.includes("\0")) return storable(value);
       issues.unshift({
         path: "SKILL.md",
         code: "bad_frontmatter",
@@ -202,8 +225,8 @@ export async function listSkillRepository(
       license,
       issues: issues.slice(0, MAX_ISSUES).map((issue) => ({
         ...issue,
-        path: issue.path.replaceAll("\0", ""),
-        message: issue.message.replaceAll("\0", ""),
+        path: storable(issue.path),
+        message: storable(issue.message),
       })),
     };
   });

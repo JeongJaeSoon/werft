@@ -198,8 +198,8 @@ export type FakeGitHub = {
    */
   failNext(count: number, status: number, path?: RegExp): void;
   /**
-   * The next REST call whose path under the repository matches answers
-   * `body` (200) in place of the repository's own answer.
+   * The next REST call whose path under the repository matches (`""` for
+   * the repository itself) answers `body` (200) in place of its own answer.
    */
   answerNext(path: RegExp, body: unknown): void;
   /**
@@ -1297,6 +1297,11 @@ export async function startFakeGitHub(
         );
         if (carried === undefined) {
           return Response.json({ message: "Bad credentials" }, { status: 401 });
+        }
+        if (answered?.path.test("")) {
+          const { body: instead } = answered;
+          answered = null;
+          return Response.json(instead);
         }
         const key = [...served.entries()].find(
           ([, repo]) => repo.id === Number(byId[1]),

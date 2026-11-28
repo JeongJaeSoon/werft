@@ -226,7 +226,7 @@ export const checkSkillRepositoryResponseSchema = skillRepositoryDetailSchema
   .extend({
     outcome: z.enum(["checked", "queued"]).meta({
       description:
-        "`queued`: a listing of the repository was running, and the process that runs it reads once more when it ends. Should that process stop first, the next check reads the listing.",
+        "`queued`: a listing of the repository was running, and the process that runs it reads once more when it ends. Should that process stop first, the request is lost: a check made once its hold (5 minutes) has passed reads the listing.",
     }),
   })
   .strict();

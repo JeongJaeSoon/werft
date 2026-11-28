@@ -280,12 +280,23 @@ describe("registering", () => {
         outcome,
       });
       expect(
-        await store.setRef({ ...managed(), principal, ref: "v2" }),
+        await store.setRef({
+          ...managed(),
+          principal,
+          ref: "v2",
+          generation: 1,
+        }),
       ).toEqual({ outcome });
     }
     expect(
-      (await store.setRef({ ...managed(), principal: admin.caller, ref: "v2" }))
-        .outcome,
+      (
+        await store.setRef({
+          ...managed(),
+          principal: admin.caller,
+          ref: "v2",
+          generation: 1,
+        })
+      ).outcome,
     ).toBe("updated");
     await db
       .update(memberships)
@@ -422,13 +433,22 @@ describe("removing and restoring", () => {
 describe("the ref", () => {
   test("a change raises the generation and records both refs; the same ref changes nothing", async () => {
     const { workspaceId, managed, id } = await registered();
-    expect(await store.setRef({ ...managed(), ref: "main" })).toMatchObject({
+    const at = (generation: number) => ({ ...managed(), generation });
+    expect(await store.setRef({ ...at(1), ref: "main" })).toMatchObject({
       outcome: "unchanged",
       repository: { generation: 1 },
     });
-    expect(await store.setRef({ ...managed(), ref: "v2" })).toMatchObject({
+    expect(await store.setRef({ ...at(1), ref: "v2" })).toMatchObject({
       outcome: "updated",
       repository: { id, ref: "v2", generation: 2, lastCommit: COMMIT_A },
+    });
+    // A ref checked against the row as it was before that change.
+    expect(await store.setRef({ ...at(1), ref: "v3" })).toEqual({
+      outcome: "changed",
+    });
+    expect(await store.find(workspaceId, id)).toMatchObject({
+      ref: "v2",
+      generation: 2,
     });
     expect(await receiptsOf(workspaceId)).toMatchObject([
       { operation: "register_skill_repository" },
@@ -444,7 +464,7 @@ describe("the ref", () => {
       },
     ]);
     await store.remove(managed());
-    expect(await store.setRef({ ...managed(), ref: "v3" })).toEqual({
+    expect(await store.setRef({ ...at(3), ref: "v3" })).toEqual({
       outcome: "not_found",
     });
   });
@@ -662,7 +682,7 @@ describe("a listing's lease and what it may write", () => {
         },
         read: { commit: COMMIT_B, license: null, entries: [] },
       });
-    await store.setRef({ ...managed(), ref: "v2" });
+    await store.setRef({ ...managed(), ref: "v2", generation: 1 });
     expect(await write(1)).toBe(false);
     expect(await store.find(workspaceId, id)).toMatchObject({
       lastCommit: COMMIT_A,

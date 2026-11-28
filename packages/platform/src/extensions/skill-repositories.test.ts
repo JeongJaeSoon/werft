@@ -135,6 +135,8 @@ function fakeReader() {
     fail: null as Error | null,
     /** Held before a tree is answered, so a test can change things meanwhile. */
     gate: null as Promise<void> | null,
+    /** Runs as a ref is resolved. */
+    onResolve: null as (() => void) | null,
     calls: [] as string[],
     asked: [] as number[],
   };
@@ -155,6 +157,7 @@ function fakeReader() {
     },
     async resolve(_app, installation, _repository, ref) {
       check(`resolve ${ref}`, installation);
+      state.onResolve?.();
       return state.refs[ref] ?? null;
     },
     async tree(_app, installation, _repository, commit) {
@@ -322,6 +325,7 @@ function memoryStore() {
       if (row.ref === input.ref) {
         return { outcome: "unchanged", repository: view(row) };
       }
+      if (row.generation !== input.generation) return { outcome: "changed" };
       row.ref = input.ref;
       row.generation += 1;
       receipts.push({
@@ -840,6 +844,25 @@ describe("pointing a repository at another ref", () => {
     expect(rows.get(repository.id)).toMatchObject({
       ref: "main",
       generation: 1,
+    });
+    expect(receipts).toHaveLength(1);
+  });
+
+  test("a repository that changed while its ref was checked is not pointed at it", async () => {
+    const { service, state, rows, receipts } = setup();
+    const { repository } = await service.register(caller(), { url: URL });
+    state.refs.v2 = COMMIT_A;
+    // A removal and a restore, or another ref change, landing meanwhile.
+    state.onResolve = () => {
+      const row = rows.get(repository.id);
+      if (row) row.generation += 1;
+    };
+    expect(
+      await refusal(service.setRef(caller(), repository.id, "v2")),
+    ).toEqual(["REVISION_CONFLICT", "repository_changed"]);
+    expect(rows.get(repository.id)).toMatchObject({
+      ref: "main",
+      generation: 2,
     });
     expect(receipts).toHaveLength(1);
   });
