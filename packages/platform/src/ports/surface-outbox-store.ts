@@ -920,7 +920,8 @@ export interface SurfaceOutboxStore {
   }): Promise<SurfacePromptCard | null>;
   /**
    * The link whose thread keeps the session's progress message (a primary
-   * link with a thread), open, revoked or closed; null when it has none.
+   * link with a thread), open or closed but not revoked; null when it has
+   * none.
    */
   progressLink(sessionId: string): Promise<SurfaceProgressLink | null>;
   /** Requests of live linked sessions without their `input_notice` row. */
