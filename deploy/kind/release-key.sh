@@ -36,8 +36,9 @@ kind_release_key() {
 # made in one Pod is not in another. It is a Ready Pod not being deleted: a
 # Pod of a replaced ReplicaSet still reads Running while it terminates. The
 # list is taken whole before grep reads it: in a pipe, grep -m 1 leaves at the
-# first of two Pods, kubectl dies writing the second (SIGPIPE), and under
-# pipefail that read as no Pod, so no link and a first login answered 401.
+# first of two Pods, and a kubectl that writes the second after that dies of
+# SIGPIPE; under pipefail that read as no Pod, so no link, and the first login
+# can answer 401.
 kind_setup_link_token() {
   local pods pod
   # shellcheck disable=SC2016 # $name is the template's variable, not the shell's
