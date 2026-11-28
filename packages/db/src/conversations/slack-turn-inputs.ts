@@ -70,7 +70,17 @@ export async function takeSlackTurnInput(
       ${turn.id}::bigint
     FROM conversation_inputs i WHERE i.topic_id = ${input.topicId}::uuid
     ON CONFLICT (agent_id, slack_team_id, slack_channel_id, slack_ts)
-      DO NOTHING`);
+      -- A reply held for M1 that M1 sent on to the work (v1-b/U1): the
+      -- turn takes it, so the buffer neither judges nor expires it again.
+      DO UPDATE SET
+        turn_id = EXCLUDED.turn_id,
+        requester_kind = EXCLUDED.requester_kind,
+        requester_id = EXCLUDED.requester_id,
+        body = NULL,
+        buffer_expires_at = NULL,
+        judgment_batch_id = NULL
+      WHERE conversation_inputs.buffer_expires_at IS NOT NULL
+        AND conversation_inputs.topic_id = EXCLUDED.topic_id`);
   // The row this insert or an earlier take of the message wrote.
   const [taken] = rowsOf<{ id: ConversationInputId }>(
     await tx.execute(sql`

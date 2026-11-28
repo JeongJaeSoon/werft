@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import {
   CONVERSATION_TURN_MODEL_CALL_LIMIT,
   CONVERSATION_TURN_TOOL_CALL_LIMIT,
@@ -21,6 +21,7 @@ import {
   type ConversationTurnCallAuthorization,
   type ConversationTurnPermitInput,
   type ConversationTurnPermitIssue,
+  type ConversationUnsolicitedTurnIssue,
   chooseBudgetAccount,
   placeSource,
   reservationTokens,
@@ -343,7 +344,7 @@ function issueIn(
  * the topic in between. A first grant takes the call's limit keys' locks and
  * then the call's row, never an account.
  */
-/** Thrown to take back a mention's turn whose message another turn engaged first. */
+/** Thrown to take back a turn whose message another turn engaged first. */
 class MentionEngaged extends Error {}
 
 /**
@@ -669,6 +670,166 @@ export function createPostgresConversationCalls(
             userId: input.requesterUserId,
           });
         })
+        .catch((error: unknown) => {
+          if (error instanceof MentionEngaged) {
+            return { outcome: "duplicate" as const };
+          }
+          throw error;
+        });
+    },
+
+    issueUnsolicitedTurnAtomic(input) {
+      const { message } = input;
+      const sources = storedSourceSet({
+        direct: [placeSource(message)],
+        inherited: [],
+        overflow: false,
+      });
+      return db
+        .transaction(
+          async (tx): Promise<ConversationUnsolicitedTurnIssue> => {
+            // Shared, as a change of the rollout writes the agent's row: a
+            // turn written first is one the change finds, one after it finds
+            // the rollout as changed.
+            const [agent] = await tx
+              .select({ rollout: agents.conversationRollout })
+              .from(agents)
+              .where(
+                and(
+                  eq(agents.id, input.agentId),
+                  eq(agents.workspaceId, input.workspaceId),
+                  isNull(agents.deletedAt),
+                ),
+              )
+              .for("share");
+            if (agent === undefined) return { outcome: "unknown_agent" };
+            if (agent.rollout !== "on") return { outcome: "not_on" };
+            const [conversation] = await tx
+              .select({
+                kind: conversations.kind,
+                teamId: conversations.teamId,
+                channelId: conversations.channelId,
+              })
+              .from(conversations)
+              .where(
+                and(
+                  eq(conversations.id, input.conversationId),
+                  eq(conversations.agentId, input.agentId),
+                  eq(conversations.workspaceId, input.workspaceId),
+                ),
+              );
+            if (
+              conversation === undefined ||
+              conversation.kind !== "channel" ||
+              conversation.teamId !== message.teamId ||
+              conversation.channelId !== message.channelId
+            ) {
+              return { outcome: "unknown_conversation" };
+            }
+            // The buffer may have dropped the thread's topic as empty since
+            // the message was held: found, or written again.
+            await tx
+              .insert(conversationTopics)
+              .values({
+                id: randomUUID(),
+                workspaceId: input.workspaceId,
+                agentId: input.agentId,
+                conversationId: input.conversationId,
+                conversationKind: conversation.kind,
+                slackTeamId: message.teamId,
+                slackChannelId: message.channelId,
+                slackThreadTs: message.threadTs,
+              })
+              .onConflictDoNothing({
+                target: [
+                  conversationTopics.agentId,
+                  conversationTopics.slackTeamId,
+                  conversationTopics.slackChannelId,
+                  conversationTopics.slackThreadTs,
+                ],
+              });
+            const [topic] = await tx
+              .select({ id: conversationTopics.id })
+              .from(conversationTopics)
+              .where(
+                and(
+                  eq(conversationTopics.agentId, input.agentId),
+                  eq(conversationTopics.slackTeamId, message.teamId),
+                  eq(conversationTopics.slackChannelId, message.channelId),
+                  eq(conversationTopics.slackThreadTs, message.threadTs),
+                ),
+              );
+            if (topic === undefined) return { outcome: "unknown_conversation" };
+            const topicId = topic.id as ConversationTopicId;
+            const refused = await turnScopeIn(tx, { ...input, topicId });
+            if (refused !== null) return refused;
+            // The installation the agent is live in there, which a delete
+            // after the app's removal finds the turn by.
+            const [binding] = rowsOf<{ installation_id: string }>(
+              await tx.execute(sql`
+                SELECT installation_id
+                FROM surface_bindings
+                WHERE agent_id = ${input.agentId}::uuid
+                  AND external_surface_id = ${message.channelId}
+                  AND revoked_at IS NULL
+                  AND installation_id IN (
+                    SELECT id FROM slack_installations
+                    WHERE team_id = ${message.teamId})
+                ORDER BY id
+                LIMIT 1`),
+            );
+            if (binding === undefined) return { outcome: "channel_stopped" };
+            // As a mention's: a delete under way is waited for and refuses
+            // the turn, and one after it finds the turn holding the message.
+            const deleted = await lockedDeletedSource(tx, {
+              workspaceId: input.workspaceId,
+              sessionId: null,
+              sources,
+              throughTurn: null,
+            });
+            if (deleted !== null) return { outcome: "source_deleted" };
+            await tx.insert(conversationTurns).values({
+              id: input.turnId,
+              workspaceId: input.workspaceId,
+              agentId: input.agentId,
+              conversationId: input.conversationId,
+              topicId,
+              origin: "m2",
+              state: "running",
+              requesterKind: "agent",
+              requesterId: input.agentId,
+              sources,
+              releaseId: input.releaseId,
+              slackInstallationId: binding.installation_id,
+              // Its writer's until queued: no pass ends it in between.
+              slackStatusClaimedAt: sql`now()`,
+            });
+            // The same verdict's effect run twice, or a mention's turn on
+            // the message first, meets the engagement: this turn goes back.
+            const [engaged] = await tx
+              .insert(conversationEngagements)
+              .values({
+                workspaceId: input.workspaceId,
+                agentId: input.agentId,
+                teamId: message.teamId,
+                channelId: message.channelId,
+                ts: message.ts,
+                kind: "proactive",
+                conversationTurnId: input.turnId,
+              })
+              .onConflictDoNothing()
+              .returning({ ts: conversationEngagements.ts });
+            if (engaged === undefined) throw new MentionEngaged();
+            const issued = await insertTurnPermitIn(
+              tx,
+              { ...input, topicId },
+              { kind: "none" },
+            );
+            return issued.outcome === "issued"
+              ? { ...issued, topicId }
+              : issued;
+          },
+        )
         .catch((error: unknown) => {
           if (error instanceof MentionEngaged) {
             return { outcome: "duplicate" as const };

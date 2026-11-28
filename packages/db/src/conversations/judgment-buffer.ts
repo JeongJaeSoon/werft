@@ -18,6 +18,7 @@ import {
   heldForReply,
   requestReplyJudgment,
 } from "./conversation-judgments.ts";
+import { m1GateOpen } from "../surface/m1-judgments.ts";
 import { lockSlackSourceMark } from "./source-mark-lock.ts";
 
 /** How long an unmentioned message stays in the judgment buffer (decision 24). */
@@ -361,13 +362,19 @@ export async function holdBufferedInput(
   );
   if (heldRow !== undefined) {
     if (input.judgment !== undefined) {
+      const bound =
+        input.judgment === "m1_engaged"
+          ? {
+              sessionId: null,
+              rule: { decision: "none", reason: "stray_reply" } as const,
+            }
+          : input.judgment;
       await requestReplyJudgment(tx, {
         ...message,
         agentId: row.agentId,
         topicId: input.topicId,
         inputId: heldRow.id,
-        sessionId: null,
-        rule: { decision: "none", reason: "stray_reply" },
+        ...bound,
       });
     }
     const dropped = await keepChannelLimit(
@@ -540,6 +547,24 @@ export function createPostgresJudgmentBufferStore(
           LIMIT 1`),
       );
       return rows.length > 0;
+    },
+
+    async judgesBoundReply(key) {
+      if (!(await m1GateOpen(db, key))) return false;
+      const sent = rowsOf(
+        await db.execute(sql`
+          SELECT 1 FROM conversation_judgments j
+          JOIN conversation_inputs i ON i.id = j.input_id
+          WHERE j.agent_id = ${key.agentId}::uuid
+            AND j.workspace_id = ${key.workspaceId}::uuid
+            AND j.slack_team_id = ${key.teamId}
+            AND j.slack_channel_id = ${key.channelId}
+            AND j.refs = ARRAY[${key.ts}]::text[]
+            AND j.grade = 'm1_to_task'
+            AND j.outcome = 'judged' AND j.decision = 'speak'
+          LIMIT 1`),
+      );
+      return sent.length === 0;
     },
   };
 }

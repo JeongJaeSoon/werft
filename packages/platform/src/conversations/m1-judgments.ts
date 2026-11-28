@@ -1,5 +1,9 @@
 import type {
+  ConversationId,
+  ConversationInputId,
   ConversationJudgmentId,
+  ConversationTopicId,
+  JudgmentGrade,
   JudgmentVoidedReason,
   M1SummaryOutcome,
 } from "@werft-ai/contracts";
@@ -38,6 +42,11 @@ export type M1Place = {
 export type ClaimedReplyJudgment = {
   id: ConversationJudgmentId;
   subject: M1Subject;
+  /**
+   * The reply's thread, and its Slack poster when it is held in the buffer
+   * for its judgment (null when it is a turn's input), for its `speak`.
+   */
+  reply: { threadTs: string; slackUserId: string | null };
   /** Past the channel's M1 cap (counted for `m1_engaged` alone): no call. */
   rateLimited: boolean;
   /** As JudgmentBatch's: when the claim's channel marks were done. */
@@ -55,7 +64,7 @@ export type M1ReadPost = Pick<M1Post, "inputId" | "ts" | "body" | "editMark">;
  * when their buffered rows went too).
  */
 export type M1BatchWrite =
-  | { outcome: "written" }
+  | { outcome: "written"; judgmentId: ConversationJudgmentId }
   | { outcome: "closed" }
   | {
       outcome: "voided";
@@ -167,6 +176,110 @@ const subjectOfBatch = (batch: JudgmentBatch): M1Subject => ({
   ),
 });
 
+/**
+ * A recorded `speak` (v1-b/U1): the one judged post it answers, with what
+ * its effect needs of it, read before the record let the post's text go.
+ */
+export type M1Speak = {
+  judgmentId: ConversationJudgmentId;
+  grade: JudgmentGrade;
+  workspaceId: string;
+  agentId: string;
+  conversationId: ConversationId;
+  teamId: string;
+  channelId: string;
+  post: {
+    inputId: ConversationInputId;
+    topicId: ConversationTopicId | null;
+    ts: string;
+    threadTs: string;
+    /** Null when the post is no held one, as a bound reply under shadow. */
+    slackUserId: string | null;
+    body: string;
+  };
+};
+
+/**
+ * What a recorded `speak` did: `turn` queued the agent's own conversation
+ * turn, `to_task` sent the reply on to its thread's task; `not_on` when
+ * the agent's rollout is not `on` (shadow records only); `duplicate` when
+ * an earlier run did it; `source_deleted` when the post was deleted since,
+ * its record then quiet with `invalid_target`; anything else the turn
+ * could not be started for.
+ */
+export type M1SpeakOutcome =
+  | "turn"
+  | "to_task"
+  | "not_on"
+  | "duplicate"
+  | "source_deleted"
+  | (string & {});
+
+/** Where a recorded `speak` takes effect. */
+export interface M1SpeakEffect {
+  speak(speak: M1Speak): Promise<M1SpeakOutcome>;
+}
+
+/** What a `speak`'s effect writes besides a turn. */
+export interface M1SpeakStore {
+  /**
+   * A held reply M1 sent on to its thread's work (`m1_to_task`): its event
+   * put in the inbox again, under the agent's rollout on, its text as the
+   * buffer holds it now, once per verdict. A post deleted since is not
+   * sent, its record then quiet with `invalid_target`.
+   */
+  sendOnToWork(
+    speak: M1Speak,
+  ): Promise<"to_task" | "not_on" | "duplicate" | "source_deleted" | "gone">;
+  /** A `speak` whose post was deleted before its effect: quiet, `invalid_target`. */
+  voidSpeak(judgmentId: ConversationJudgmentId): Promise<void>;
+}
+
+/**
+ * A recorded `speak`'s effect (v1-b/U1): a held reply in a thread whose work
+ * is open goes on to the work; any other held post is answered by the
+ * agent's own conversation turn. A post that was no held one (a reply a
+ * turn took, under shadow) has no effect: its turn answered it.
+ */
+export function createM1SpeakEffect(deps: {
+  store: M1SpeakStore;
+  startTurn(speak: M1Speak): Promise<M1SpeakOutcome>;
+}): M1SpeakEffect {
+  return {
+    async speak(speak) {
+      if (speak.post.slackUserId === null) return "not_held";
+      if (speak.grade === "m1_to_task") return deps.store.sendOnToWork(speak);
+      const started = await deps.startTurn(speak);
+      if (started === "source_deleted") {
+        await deps.store.voidSpeak(speak.judgmentId);
+      }
+      return started;
+    },
+  };
+}
+
+/** Runs a speak's effect; a failure leaves the record, logged, and says nothing. */
+async function takeSpeak(
+  effect: M1SpeakEffect | undefined,
+  logger: VoidLogger | undefined,
+  speak: M1Speak,
+) {
+  if (effect === undefined) return;
+  try {
+    const outcome = await effect.speak(speak);
+    logger?.info?.("M1 speak", {
+      judgment_id: speak.judgmentId,
+      grade: speak.grade,
+      speak_outcome: outcome,
+    });
+  } catch (error) {
+    logger?.warn?.("M1 speak failed", {
+      judgment_id: speak.judgmentId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 /** Writes a summary line tries at most this many times (a1/J8). */
 export const M1_SUMMARY_WRITE_ATTEMPTS = 3;
 
@@ -232,6 +345,7 @@ export function createM1BatchJudge(deps: {
   judge: M1Judge;
   store: Pick<M1JudgmentStore, "recordBatch" | "writeSummaryLine">;
   folder?: Pick<SummaryFolder, "fold">;
+  speak?: M1SpeakEffect;
   logger?: VoidLogger;
 }): JudgmentBatchJudge {
   const fold = async (batch: JudgmentBatch) => {
@@ -292,6 +406,33 @@ export function createM1BatchJudge(deps: {
           subject.posts.filter((post) => refs.has(post.ts)),
           { final: rejudge, ...(readAt === undefined ? {} : { readAt }) },
         );
+        if (written.outcome === "written" && record.replyTo != null) {
+          const target = subject.posts.find(
+            (post) => post.ts === record.replyTo,
+          );
+          const input = batch.inputs.find(
+            (each) => each.inputId === target?.inputId,
+          );
+          if (target !== undefined && input !== undefined) {
+            await takeSpeak(deps.speak, deps.logger, {
+              judgmentId: written.judgmentId,
+              grade: "buffer_m1",
+              workspaceId: batch.workspaceId,
+              agentId: batch.agentId,
+              conversationId: batch.conversationId,
+              teamId: batch.teamId,
+              channelId: batch.channelId,
+              post: {
+                inputId: input.inputId,
+                topicId: input.topicId,
+                ts: input.ts,
+                threadTs: input.threadTs,
+                slackUserId: input.slackUserId,
+                body: target.body,
+              },
+            });
+          }
+        }
         if (written.outcome !== "voided") break;
         logVoided(deps.logger, record, written.reason);
         // Voided again: the store dropped what the batch still held.
@@ -339,6 +480,7 @@ export type ReplyJudgmentRun = {
 export async function runReplyJudgments(deps: {
   store: Pick<M1JudgmentStore, "claimReply" | "finishReply">;
   judge: M1Judge;
+  speak?: M1SpeakEffect;
   logger: {
     warn(message: string, fields?: Readonly<Record<string, unknown>>): void;
   } & VoidLogger;
@@ -394,8 +536,31 @@ export async function runReplyJudgments(deps: {
         }
       }
     }
-    if (written === "written") run.judged += 1;
-    else if (written === "dropped") run.dropped += 1;
+    if (written === "written") {
+      run.judged += 1;
+      const answered = claimed.subject.posts.find(
+        (each) => each.ts === record?.replyTo,
+      );
+      if (answered !== undefined) {
+        await takeSpeak(deps.speak, deps.logger, {
+          judgmentId: claimed.id,
+          grade: claimed.subject.grade,
+          workspaceId: claimed.subject.workspaceId,
+          agentId: claimed.subject.agentId,
+          conversationId: claimed.subject.conversationId,
+          teamId: claimed.subject.teamId,
+          channelId: claimed.subject.channelId,
+          post: {
+            inputId: answered.inputId,
+            topicId: claimed.subject.topicId,
+            ts: answered.ts,
+            threadTs: claimed.reply.threadTs,
+            slackUserId: claimed.reply.slackUserId,
+            body: answered.body,
+          },
+        });
+      }
+    } else if (written === "dropped") run.dropped += 1;
     else run.voided += 1;
   }
   return run;
@@ -415,6 +580,8 @@ export function createM1JudgmentRunner(deps: {
   store: M1JudgmentStore;
   judge: M1Judge;
   folder?: Pick<SummaryFolder, "fold">;
+  /** Where a recorded `speak` takes effect; unset, it is recorded only. */
+  speak?: M1SpeakEffect;
   logger: {
     info(message: string, fields?: Readonly<Record<string, unknown>>): void;
     warn(message: string, fields?: Readonly<Record<string, unknown>>): void;
@@ -437,6 +604,7 @@ export function createM1JudgmentRunner(deps: {
     const replies = await runReplyJudgments({
       store: deps.store,
       judge: deps.judge,
+      ...(deps.speak === undefined ? {} : { speak: deps.speak }),
       logger: deps.logger,
       deadline,
       clock: until,

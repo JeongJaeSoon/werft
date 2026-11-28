@@ -33,6 +33,8 @@ export type JudgmentBatchInput = {
   inputId: ConversationInputId;
   topicId: ConversationTopicId;
   ts: string;
+  /** The thread it is in, its own ts for a top-level post. */
+  threadTs: string;
   slackUserId: string;
   body: string;
   receivedAt: Date;

@@ -26,6 +26,8 @@ import {
   type ConversationTurnQueue,
   connectionOf,
   hashToken,
+  type M1Speak,
+  type M1SpeakOutcome,
   type MentionTurnRequest,
   type MentionTurnRetryRequests,
   type MentionTurnRetryStart,
@@ -477,6 +479,115 @@ export function createMentionConversationTurns(deps: {
         { inputId, attempt: attempt + 1, retryOf: turnId },
         queuing,
       );
+    },
+  };
+}
+
+/**
+ * Starts the agent's own conversation turn on a post M1 judged "speak"
+ * (v1-b/U1): no person asked, so its requester is the agent and its calls
+ * are held on the agent's team (root none). Its decisions are an answer or
+ * silence alone. It does not wait: the Slack role's pass ends it, with no
+ * try again, no line and no 👀. Sized as a mention's turn is.
+ */
+export function createUnsolicitedConversationTurns(deps: {
+  calls: Pick<ConversationCalls, "issueUnsolicitedTurn" | "endTurn">;
+  queue: Pick<ConversationTurnQueue, "enqueue">;
+  statuses: Pick<MentionTurnStatusStore, "releaseReset">;
+  agents: Pick<AgentStore, "get">;
+  catalog: Pick<SessionCatalog, "connections">;
+  now?: () => Date;
+}) {
+  const now = deps.now ?? (() => new Date());
+  return {
+    async start(speak: M1Speak): Promise<M1SpeakOutcome> {
+      const { post } = speak;
+      if (post.body.length > CONVERSATION_TURN_TEXT_MAX) return "too_long";
+      const agent = await deps.agents.get(speak.workspaceId, speak.agentId);
+      if (agent === null) return "unknown_agent";
+      const release = agent.active_release;
+      if (release === null) return "no_active_release";
+      const connection = connectionOf(deps.catalog, release.connection_id);
+      const model = release.runtime_config_snapshot.model;
+      if (
+        connection === undefined ||
+        connection.provider.kind === "openai_responses" ||
+        typeof model !== "string"
+      ) {
+        return "connection_unavailable";
+      }
+      const turnId = conversationTurnIdSchema.parse(crypto.randomUUID());
+      const issued = await deps.calls.issueUnsolicitedTurn({
+        workspaceId: speak.workspaceId,
+        agentId: speak.agentId,
+        conversationId: speak.conversationId,
+        turnId,
+        message: {
+          teamId: speak.teamId,
+          channelId: speak.channelId,
+          ts: post.ts,
+          threadTs: post.threadTs,
+        },
+        ttlMs: OPERATOR_TURN_TAKE_MS + CONVERSATION_TURN_LEASE_MS,
+        releaseId: release.id,
+        connectionId: release.connection_id,
+        model,
+        maxTokens: OPERATOR_TURN_MAX_TOKENS,
+        maxRequestBytes: OPERATOR_TURN_MAX_REQUEST_BYTES,
+      });
+      if (issued.outcome === "unavailable") return "connection_unavailable";
+      if (issued.outcome !== "issued") {
+        return issued.outcome === "duplicate" ? "duplicate" : issued.outcome;
+      }
+      let ended = false;
+      try {
+        const at = now();
+        const queued = await deps.queue.enqueue(
+          {
+            turn_id: turnId,
+            scope: {
+              workspace_id: speak.workspaceId,
+              agent_id: speak.agentId,
+              conversation_id: speak.conversationId,
+              topic_id: issued.topicId,
+            },
+            model,
+            provider: {
+              kind: connection.provider.kind,
+              endpoint: connection.provider.endpoint,
+              auth: { kind: "egress_token", token: issued.token },
+            },
+            call: { max_tokens: OPERATOR_TURN_MAX_TOKENS },
+            // The post M1 judged is the turn's input; what else it reads is
+            // assembled as data when a runtime takes it.
+            input: { id: post.inputId, text: post.body },
+            fresh_input: { id: crypto.randomUUID(), text: post.body },
+            decision_tools: [
+              ...conversationDecisionTools("agent", issued.place),
+            ],
+          },
+          {
+            // The held post's id: one verdict's turn is queued once.
+            inputId: post.inputId,
+            attempt: 1,
+            takeBy: new Date(
+              Math.min(
+                at.getTime() + OPERATOR_TURN_TAKE_MS,
+                issued.expiresAt.getTime(),
+              ),
+            ),
+            now: at,
+            usableUntil: issued.expiresAt,
+          },
+        );
+        ended = queued === "ended";
+      } catch (error) {
+        await deps.calls.endTurn(turnId).catch(() => undefined);
+        await deps.statuses.releaseReset(turnId).catch(() => undefined);
+        throw error;
+      }
+      await deps.statuses.releaseReset(turnId).catch(() => undefined);
+      return ended ? "channel_stopped" : "turn";
     },
   };
 }

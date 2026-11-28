@@ -6,6 +6,7 @@ import {
   conversationCallKeySchema,
   conversationIdSchema,
   conversationInputIdSchema,
+  conversationJudgmentIdSchema,
   conversationTopicIdSchema,
   judgmentBatchIdSchema,
 } from "@werft-ai/contracts";
@@ -379,6 +380,7 @@ describe("a batch's fold", () => {
         inputId: conversationInputIdSchema.parse(randomUUID()),
         topicId: conversationTopicIdSchema.parse(randomUUID()),
         ts: "100.000001",
+        threadTs: "100.000001",
         slackUserId: "U1",
         body: "the build is broken",
         receivedAt: new Date(),
@@ -425,7 +427,10 @@ describe("a batch's fold", () => {
         },
         recordBatch: async (): Promise<M1BatchWrite> => {
           order.push("record");
-          return { outcome: "written" };
+          return {
+            outcome: "written",
+            judgmentId: conversationJudgmentIdSchema.parse(randomUUID()),
+          };
         },
       },
       folder: {

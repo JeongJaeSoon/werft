@@ -39,6 +39,7 @@ function batchOf(...ts: string[]): JudgmentBatch {
       inputId: conversationInputIdSchema.parse(randomUUID()),
       topicId: randomUUID() as never,
       ts: t,
+      threadTs: t,
       slackUserId: "U1",
       body: `post ${t}`,
       receivedAt: new Date(),
@@ -122,7 +123,12 @@ function batchStore(writes: M1BatchWrite[] = [], lineWrites: LineWrite[] = []) {
         final: options.final === true,
         ...(options.readAt === undefined ? {} : { readAt: options.readAt }),
       });
-      return writes.shift() ?? { outcome: "written" };
+      return (
+        writes.shift() ?? {
+          outcome: "written",
+          judgmentId: conversationJudgmentIdSchema.parse(randomUUID()),
+        }
+      );
     },
   };
   return { recorded, lines, order, store };
@@ -598,6 +604,7 @@ describe("runReplyJudgments", () => {
           },
         ],
       },
+      reply: { threadTs: "1.1", slackUserId: "U1" },
     };
   }
 

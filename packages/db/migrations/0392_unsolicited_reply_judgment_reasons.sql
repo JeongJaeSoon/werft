@@ -1,0 +1,8 @@
+ALTER TABLE "conversation_judgments" DROP CONSTRAINT "conversation_judgments_verdict_check";--> statement-breakpoint
+ALTER TABLE "conversation_judgments" ADD CONSTRAINT "conversation_judgments_verdict_check" CHECK (CASE "conversation_judgments"."outcome"
+        WHEN 'judged' THEN ("conversation_judgments"."decision" IN ('speak','quiet') AND "conversation_judgments"."reason" IN ('not_for_agent','human_conversation','already_handled','out_of_scope','needs_agent','unclear')) OR ("conversation_judgments"."decision" = 'quiet' AND "conversation_judgments"."reason" IN ('invalid_target')) OR ("conversation_judgments"."decision" = 'speak' AND "conversation_judgments"."reason" IN ('turn_failed','turn_budget_refused','turn_limit_reached','turn_source_deleted','turn_stopped'))
+        WHEN 'not_called' THEN "conversation_judgments"."decision" = 'quiet' AND "conversation_judgments"."reason" IN ('budget_refused','concurrency_limited','rate_limited','input_too_large','no_active_release','model_unavailable')
+        WHEN 'failed' THEN "conversation_judgments"."decision" = 'quiet' AND "conversation_judgments"."reason" IN ('timed_out','unreachable','provider_error','malformed')
+        WHEN 'voided' THEN "conversation_judgments"."decision" IS NULL AND "conversation_judgments"."reason" IN ('voided_by_delete','voided_by_edit')
+        ELSE "conversation_judgments"."outcome" IS NULL AND "conversation_judgments"."decision" IS NULL AND "conversation_judgments"."reason" IS NULL
+      END AND ("conversation_judgments"."outcome" IS NULL) = ("conversation_judgments"."judged_at" IS NULL));

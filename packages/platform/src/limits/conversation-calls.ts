@@ -28,6 +28,7 @@ import type {
   ConversationCallIssue,
   ConversationCallStore,
   ConversationMentionTurnIssue,
+  ConversationUnsolicitedTurnIssue,
   ConversationTurnLimitReached,
   ConversationTurnPermitIssue,
 } from "./ports/conversation-call-store.ts";
@@ -128,6 +129,16 @@ export type ConversationTurnPermitIssued =
 export type ConversationMentionTurnIssued =
   | ConversationTurnPermitIssued
   | Exclude<ConversationMentionTurnIssue, ConversationTurnPermitIssue>;
+
+export type ConversationUnsolicitedTurnIssued =
+  | (Extract<ConversationTurnPermitIssued, { outcome: "issued" }> & {
+      topicId: ConversationTopicId;
+    })
+  | Exclude<ConversationTurnPermitIssued, { outcome: "issued" }>
+  | Exclude<
+      ConversationUnsolicitedTurnIssue,
+      { outcome: ConversationTurnPermitIssue["outcome"] }
+    >;
 
 export type ConversationCallIssued =
   | {
@@ -390,6 +401,62 @@ export function createConversationCalls(deps: {
         token,
         expiresAt: issued.expiresAt,
         place: issued.place,
+      };
+    },
+    /**
+     * The agent's own answer to a message M1 judged "speak" (v1-b/U1): no
+     * person asked, so the turn's requester is the agent and each call on its
+     * permit is reserved on the agent's team (root none), under the team's
+     * 80% rule.
+     */
+    async issueUnsolicitedTurn(input: {
+      workspaceId: string;
+      agentId: string;
+      conversationId: ConversationId;
+      turnId: ConversationTurnId;
+      message: {
+        teamId: string;
+        channelId: string;
+        ts: string;
+        threadTs: string;
+      };
+      releaseId: string | null;
+      connectionId: string;
+      model: string;
+      maxTokens: number;
+      maxRequestBytes: number;
+      ttlMs: number;
+    }): Promise<ConversationUnsolicitedTurnIssued> {
+      for (const [name, value] of [
+        ["maxTokens", input.maxTokens],
+        ["maxRequestBytes", input.maxRequestBytes],
+        ["ttlMs", input.ttlMs],
+      ] as const) {
+        if (!Number.isSafeInteger(value) || value < 1) {
+          throw new RangeError(`${name} must be a positive integer: ${value}`);
+        }
+      }
+      const found = callConnection(
+        deps.catalog,
+        input.connectionId,
+        input.model,
+      );
+      if ("reason" in found)
+        return { outcome: "unavailable", reason: found.reason };
+      const token = `${CONVERSATION_TURN_PERMIT_TOKEN_PREFIX}${randomBytes(32).toString("base64url")}`;
+      const issued = await deps.store.issueUnsolicitedTurnAtomic({
+        ...input,
+        tokenHash: hashConversationCallToken(token),
+        path: CONVERSATION_CALL_PATH,
+        callKey: conversationCallKeySchema.parse(`${input.turnId}:m2`),
+      });
+      if (issued.outcome !== "issued") return issued;
+      return {
+        outcome: "issued",
+        token,
+        expiresAt: issued.expiresAt,
+        place: issued.place,
+        topicId: issued.topicId,
       };
     },
     /**

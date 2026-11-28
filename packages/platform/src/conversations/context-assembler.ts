@@ -91,6 +91,8 @@ export const PIECE_OVERHEAD_BYTES = 32;
 /** A post the call is about, handed in by its caller. Never dropped. */
 export type CurrentPost = {
   inputId: ConversationInputId | null;
+  /** Its Slack ts, shown as its id on the [now] line when given. */
+  ts?: string;
   body: string;
   sources: SourceKey[];
   receivedAt: Date;
@@ -221,7 +223,9 @@ export function fitContext(input: {
     capBytes - instructionBytes,
   );
   for (const post of [...posts].reverse()) {
-    const bytes = pieceBytes(post.body);
+    // Its id on the [now] line is framed beside the text.
+    const bytes =
+      pieceBytes(post.body) + (post.ts === undefined ? 0 : bytesOf(post.ts));
     // Once one does not fit, every older one waits too: a batch is the newest run.
     if (
       left.length === 0 &&
@@ -400,7 +404,13 @@ export function renderContext(
   for (const piece of fitted.fragments) {
     lines.push(`[${PIECE_LABEL[piece.kind]}] ${fragmentText(piece)}`);
   }
-  for (const post of fitted.current) lines.push(`[now] ${post.body}`);
+  for (const post of fitted.current) {
+    lines.push(
+      post.ts === undefined
+        ? `[now] ${post.body}`
+        : `[now ts=${post.ts}] ${post.body}`,
+    );
+  }
   return lines.join("\n");
 }
 

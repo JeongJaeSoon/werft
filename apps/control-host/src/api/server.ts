@@ -1416,6 +1416,7 @@ const m1Judgments =
         db,
         agents: agentStore,
         catalog,
+        secretKey,
         egressUrl: judgeEgressUrl,
         logger,
       }).start();

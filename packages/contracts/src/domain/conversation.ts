@@ -361,10 +361,34 @@ export const JUDGMENT_OUTCOME_VALUES = [
 ] as const;
 export type JudgmentOutcome = (typeof JUDGMENT_OUTCOME_VALUES)[number];
 
+/**
+ * Why an answered judgment's `speak` is kept as silence (v1-b/U1, Architect
+ * Q1): the message it chose to answer is missing or not one it judged.
+ */
+export const JUDGMENT_TARGET_REASON_VALUES = ["invalid_target"] as const;
+export type JudgmentTargetReason =
+  (typeof JUDGMENT_TARGET_REASON_VALUES)[number];
+
+/**
+ * What ended the conversation turn a `speak` made with nothing said
+ * (v1-b/U1): written over the model's reason once the turn ends that way. No
+ * thread line says it, as nobody asked: the record alone does.
+ */
+export const JUDGMENT_TURN_REASON_VALUES = [
+  "turn_failed",
+  "turn_budget_refused",
+  "turn_limit_reached",
+  "turn_source_deleted",
+  "turn_stopped",
+] as const;
+export type JudgmentTurnReason = (typeof JUDGMENT_TURN_REASON_VALUES)[number];
+
 export const JUDGMENT_REASON_VALUES = [
   ...M1_MODEL_REASON_VALUES,
   ...JUDGMENT_NOT_CALLED_REASON_VALUES,
   ...JUDGMENT_FAILED_REASON_VALUES,
+  ...JUDGMENT_TARGET_REASON_VALUES,
+  ...JUDGMENT_TURN_REASON_VALUES,
 ] as const;
 export type JudgmentReason = (typeof JUDGMENT_REASON_VALUES)[number];
 
@@ -375,6 +399,7 @@ export type JudgmentRecordReason = JudgmentReason | JudgmentVoidedReason;
 /** A judgment's result as its record keeps it; only `judged` can speak. */
 export type JudgmentVerdict =
   | { outcome: "judged"; decision: M1Decision; reason: M1ModelReason }
+  | { outcome: "judged"; decision: "quiet"; reason: JudgmentTargetReason }
   | {
       outcome: "not_called";
       decision: "quiet";
@@ -411,7 +436,7 @@ export type JudgmentRule =
  * system text changes, so judgments under other rules are never compared
  * as one.
  */
-export const M1_PROMPT_VERSION = 2;
+export const M1_PROMPT_VERSION = 3;
 
 /**
  * What became of the summary line a batch judgment gave (a1/J8): added;

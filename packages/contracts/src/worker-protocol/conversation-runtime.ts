@@ -90,7 +90,8 @@ const ANSWER_ONLY = ["reply", "no_reply"] as const;
 /**
  * The decision tools each kind of turn requester is given (G2): a person,
  * and the operator's own test turn, all four; an agent (a Slack bot) only
- * to answer or stay quiet. One table, for what the runtime loads and what
+ * to answer or stay quiet, as the agent's own unasked turn (`agent`,
+ * v1-b/U1): what nobody asked for opens no task and joins none. One table, for what the runtime loads and what
  * the server checks again.
  */
 const DECISION_TOOLS_BY_REQUESTER: Record<
@@ -101,6 +102,7 @@ const DECISION_TOOLS_BY_REQUESTER: Record<
   slack_user: ALL_DECISIONS,
   operator: ALL_DECISIONS,
   slack_bot: ANSWER_ONLY,
+  agent: ANSWER_ONLY,
 };
 /**
  * The decision tools of a turn whose requester is of `kind`; a kind not

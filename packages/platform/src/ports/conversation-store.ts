@@ -31,6 +31,15 @@ export interface JudgmentBufferStore {
   engagedThread(
     key: ChannelConversationKey & { threadTs: string },
   ): Promise<boolean>;
+  /**
+   * Whether an unmentioned reply in a thread bound to work is M1's to judge
+   * now (v1-b/U1): the channel's M1 gate is open, and no verdict sent the
+   * reply on to the work already (`m1_to_task` and `speak`), whose event,
+   * put in the inbox again, goes to the work as the current path takes it.
+   */
+  judgesBoundReply(
+    key: ChannelConversationKey & { ts: string },
+  ): Promise<boolean>;
 }
 
 /** What names one main conversation of one agent. */

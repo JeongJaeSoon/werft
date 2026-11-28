@@ -91,6 +91,8 @@ import {
   JUDGMENT_FAILED_REASON_VALUES,
   JUDGMENT_GRADE_VALUES,
   JUDGMENT_NOT_CALLED_REASON_VALUES,
+  JUDGMENT_TARGET_REASON_VALUES,
+  JUDGMENT_TURN_REASON_VALUES,
   JUDGMENT_RULE_DECISION_VALUES,
   JUDGMENT_RULE_REASON_VALUES,
   JUDGMENT_VOIDED_REASON_VALUES,
@@ -6528,12 +6530,14 @@ export const conversationJudgments = pgTable(
       sql`${table.slackTeamId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.slackChannelId} ~ '^[A-Za-z0-9_-]{1,64}$' AND CASE WHEN ${table.outcome} = 'voided' THEN cardinality(${table.refs}) = 0 AND ${table.sources} IS NULL AND ${table.inputId} IS NULL ELSE cardinality(${table.refs}) >= 1 END`,
     ),
     // Judged all at once, and a reason of the outcome's own set: the model's
-    // six for a judged one, which alone may speak. A voided one keeps no
-    // decision (a1/J6) and, above, no place of what it read.
+    // six for a judged one, which alone may speak. A judged quiet may say
+    // the message it chose was no target, and a speak what ended its turn
+    // with nothing said (v1-b/U1). A voided one keeps no decision (a1/J6)
+    // and, above, no place of what it read.
     check(
       "conversation_judgments_verdict_check",
       sql`CASE ${table.outcome}
-        WHEN 'judged' THEN ${table.decision} IN (${sql.raw(sqlList(M1_DECISION_VALUES))}) AND ${table.reason} IN (${sql.raw(sqlList(M1_MODEL_REASON_VALUES))})
+        WHEN 'judged' THEN (${table.decision} IN (${sql.raw(sqlList(M1_DECISION_VALUES))}) AND ${table.reason} IN (${sql.raw(sqlList(M1_MODEL_REASON_VALUES))})) OR (${table.decision} = 'quiet' AND ${table.reason} IN (${sql.raw(sqlList(JUDGMENT_TARGET_REASON_VALUES))})) OR (${table.decision} = 'speak' AND ${table.reason} IN (${sql.raw(sqlList(JUDGMENT_TURN_REASON_VALUES))}))
         WHEN 'not_called' THEN ${table.decision} = 'quiet' AND ${table.reason} IN (${sql.raw(sqlList(JUDGMENT_NOT_CALLED_REASON_VALUES))})
         WHEN 'failed' THEN ${table.decision} = 'quiet' AND ${table.reason} IN (${sql.raw(sqlList(JUDGMENT_FAILED_REASON_VALUES))})
         WHEN 'voided' THEN ${table.decision} IS NULL AND ${table.reason} IN (${sql.raw(sqlList(JUDGMENT_VOIDED_REASON_VALUES))})

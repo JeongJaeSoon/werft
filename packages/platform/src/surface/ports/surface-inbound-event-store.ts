@@ -97,9 +97,12 @@ export type BufferedInputReceipt = {
   buffered: { body: string; slackUserId: string };
   /**
    * Held for its own judgment, not a batch's: a reply in a thread the agent
-   * took part in that has no session, which makes no turn.
+   * took part in that has no session, which makes no turn (`m1_engaged`);
+   * or, under the agent's rollout on, an unmentioned reply in a thread bound
+   * to work, which M1 sends on to the work or answers (v1-b/U1), with what
+   * the current path's rule said.
    */
-  judgment?: "m1_engaged";
+  judgment?: "m1_engaged" | { sessionId: string; rule: ThreadReplyRule };
 };
 
 /** What a write after a claim is fenced on. */

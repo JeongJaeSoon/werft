@@ -91,6 +91,7 @@ type Channel = {
 type HeldRow = {
   id: string;
   topic_id: string;
+  thread_ts: string | null;
   slack_ts: string;
   requester_id: string;
   body: string;
@@ -167,6 +168,8 @@ async function closeChannel(
   const rows = rowsOf<HeldRow>(
     await tx.execute(sql`
       SELECT i.id, i.topic_id, i.slack_ts, i.requester_id,
+        (SELECT t.slack_thread_ts FROM conversation_topics t
+          WHERE t.id = i.topic_id) AS thread_ts,
         i.body, i.received_at, i.body_edited_at,
         i.judgment_batch_id IS NOT NULL AS rate_limited,
         -- Read with the text, for the write's check (a1/J6).
@@ -253,6 +256,8 @@ async function closeChannel(
     inputId: row.id as ConversationInputId,
     topicId: row.topic_id as ConversationTopicId,
     ts: row.slack_ts,
+    // A held post's topic is its thread's; a top-level post opens its own.
+    threadTs: row.thread_ts ?? row.slack_ts,
     slackUserId: row.requester_id,
     body: row.body,
     receivedAt: dateOf(row.received_at),

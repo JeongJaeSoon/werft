@@ -79,6 +79,11 @@ export function m1GateOpenForWrite(
   return gateOpenIn(tx, place, true);
 }
 
+/** M1's gate as it stands, unlocked: for a receive path's choice only. */
+export function m1GateOpen(db: Database, place: M1Place): Promise<boolean> {
+  return gateOpenIn(db, place, false);
+}
+
 /** A record's verdict and what it read, as its columns hold them. */
 function verdictColumns(record: M1Record) {
   const sources = storedSourceSet({
@@ -153,7 +158,13 @@ type WaitingRow = {
   slack_channel_id: string;
   input_id: ConversationInputId | null;
   refs: string[];
+  /** Its input is held in the buffer for it, not a turn's (v1-b/U1). */
+  held: boolean;
 };
+
+// Whether a judgment row's input is a buffered one, held for its judgment.
+const heldInput = sql`EXISTS (SELECT 1 FROM conversation_inputs hi
+  WHERE hi.id = input_id AND hi.buffer_expires_at IS NOT NULL) AS held`;
 
 // Lock order, as the switch's lowering and an admin's delete take theirs:
 // the agent (the gate), then buffered inputs, then judgment rows.
@@ -161,9 +172,9 @@ type WaitingRow = {
 /** Drops a waiting reply's row, its held text first when it has one. */
 async function dropReply(
   tx: Database,
-  row: Pick<WaitingRow, "id" | "grade" | "input_id">,
+  row: Pick<WaitingRow, "id" | "held" | "input_id">,
 ) {
-  if (row.grade === "m1_engaged" && row.input_id !== null) {
+  if (row.held && row.input_id !== null) {
     await dropBufferedInputs(tx, [row.input_id]);
   }
   await tx.execute(sql`
@@ -355,6 +366,7 @@ export function createPostgresM1JudgmentStore(db: Database): M1JudgmentStore {
           };
         }
         const columns = verdictColumns(record);
+        const judgmentId = randomUUID() as ConversationJudgmentId;
         await tx.execute(sql`
           INSERT INTO conversation_judgments (
             id, workspace_id, agent_id, conversation_id, grade,
@@ -362,7 +374,7 @@ export function createPostgresM1JudgmentStore(db: Database): M1JudgmentStore {
             judgment_batch_id, release_id, call_key, attempts,
             prompt_version, outcome, decision, reason, summary, judged_at
           ) VALUES (
-            ${randomUUID()}::uuid, ${batch.workspaceId}::uuid,
+            ${judgmentId}::uuid, ${batch.workspaceId}::uuid,
             ${batch.agentId}::uuid, ${batch.conversationId}::uuid,
             'buffer_m1', ${batch.teamId}, ${batch.channelId},
             ${textArray(record.refs)}, ${columns.sources}::jsonb,
@@ -374,7 +386,7 @@ export function createPostgresM1JudgmentStore(db: Database): M1JudgmentStore {
           tx,
           judged.map((post) => post.inputId),
         );
-        return { outcome: "written" };
+        return { outcome: "written", judgmentId };
       });
     },
 
@@ -385,9 +397,9 @@ export function createPostgresM1JudgmentStore(db: Database): M1JudgmentStore {
           : sql`${options.now.toISOString()}::timestamptz`;
       // Unjudged past the buffer's time, or taken by a judge that died:
       // given up, as a buffered message expires unjudged.
-      const lapsed = rowsOf<Pick<WaitingRow, "id" | "grade" | "input_id">>(
+      const lapsed = rowsOf<Pick<WaitingRow, "id" | "held" | "input_id">>(
         await db.execute(sql`
-          SELECT id, grade, input_id FROM conversation_judgments
+          SELECT id, input_id, ${heldInput} FROM conversation_judgments
           WHERE outcome IS NULL
             AND (created_at <= ${at} - ${secs(JUDGMENT_BUFFER_TTL_MS)}
               OR claimed_at <= ${at} - ${secs(JUDGMENT_BATCH_DEADLINE_MS)})
@@ -404,7 +416,7 @@ export function createPostgresM1JudgmentStore(db: Database): M1JudgmentStore {
           const [row] = rowsOf<WaitingRow>(
             await tx.execute(sql`
               SELECT id, workspace_id, agent_id, conversation_id, grade,
-                slack_team_id, slack_channel_id, input_id, refs
+                slack_team_id, slack_channel_id, input_id, refs, ${heldInput}
               FROM conversation_judgments
               WHERE outcome IS NULL AND claimed_at IS NULL
                 AND created_at > ${at} - ${secs(JUDGMENT_BUFFER_TTL_MS)}
@@ -432,12 +444,16 @@ export function createPostgresM1JudgmentStore(db: Database): M1JudgmentStore {
             ? []
             : rowsOf<{
                 topic_id: ConversationTopicId;
+                thread_ts: string | null;
+                requester_id: string;
                 received_at: Date | string;
                 body: string | null;
                 edit_mark: string | null;
               }>(
                 await db.execute(sql`
-                  SELECT i.topic_id, i.received_at,
+                  SELECT i.topic_id, i.received_at, i.requester_id,
+                    (SELECT ct.slack_thread_ts FROM conversation_topics ct
+                      WHERE ct.id = i.topic_id) AS thread_ts,
                     COALESCE(i.body, t.message) AS body,
                     -- In one snapshot with the text, for the write's check.
                     (SELECT m.marked_at::text FROM edited_sources m
@@ -462,6 +478,11 @@ export function createPostgresM1JudgmentStore(db: Database): M1JudgmentStore {
         const claimed: ClaimedReplyJudgment = {
           id: row.id,
           rateLimited,
+          reply: {
+            threadTs: post.thread_ts ?? ts,
+            // A held reply's poster is Slack's; a turn's input names a person.
+            slackUserId: row.held ? post.requester_id : null,
+          },
           // Before the judgment reads its context (a1/J6).
           readAt: await channelMarksSettledAt(db, {
             workspaceId: row.workspace_id,
@@ -506,7 +527,7 @@ export function createPostgresM1JudgmentStore(db: Database): M1JudgmentStore {
       const [row] = rowsOf<WaitingRow>(
         await db.execute(sql`
           SELECT id, workspace_id, agent_id, grade, slack_team_id,
-            slack_channel_id, input_id, refs
+            slack_channel_id, input_id, refs, ${heldInput}
           FROM conversation_judgments
           WHERE id = ${id}::uuid AND outcome IS NULL`),
       );
@@ -534,7 +555,7 @@ export function createPostgresM1JudgmentStore(db: Database): M1JudgmentStore {
                     ts,
                     editMark: read?.editMark ?? null,
                     buffered:
-                      row.grade === "m1_engaged" && read !== undefined
+                      row.held && read !== undefined
                         ? { inputId: row.input_id, body: read.body }
                         : null,
                   },
@@ -556,7 +577,7 @@ export function createPostgresM1JudgmentStore(db: Database): M1JudgmentStore {
             voided.changes.deleted.length > 0 || voided.changes.gone.length > 0;
           const body = edit === undefined ? (read?.body ?? null) : edit.body;
           const rejudge =
-            row.grade === "m1_engaged" &&
+            row.held &&
             !replyLeft &&
             options.final !== true &&
             body !== null
@@ -585,7 +606,7 @@ export function createPostgresM1JudgmentStore(db: Database): M1JudgmentStore {
               FROM conversation_judgments WHERE id = ${id}::uuid`);
             return { voided: voided.reason, rejudge };
           }
-          if (row.grade === "m1_engaged" && row.input_id !== null) {
+          if (row.held && row.input_id !== null) {
             await dropBufferedInputs(tx, [row.input_id]);
           }
           await tx.execute(sql`
@@ -597,7 +618,7 @@ export function createPostgresM1JudgmentStore(db: Database): M1JudgmentStore {
             WHERE id = ${id}::uuid AND outcome IS NULL`);
           return { voided: voided.reason, rejudge: null };
         }
-        if (row.grade === "m1_engaged" && row.input_id !== null) {
+        if (row.held && row.input_id !== null) {
           await dropBufferedInputs(tx, [row.input_id]);
         }
         const columns = verdictColumns(record);

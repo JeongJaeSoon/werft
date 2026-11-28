@@ -58,6 +58,17 @@ export interface ConversationCallStore {
     input: ConversationMentionTurnInput,
   ): Promise<ConversationMentionTurnIssue>;
   /**
+   * The agent's own answer to a message M1 judged "speak" (v1-b/U1): under
+   * the agent's rollout on, writes the turn `running` with the message as its
+   * source and the agent as its requester, its permit on the agent's team
+   * (root none), and the message's `proactive` engagement, together or not
+   * at all. The thread's topic is found or written. A message already
+   * engaged adds nothing.
+   */
+  issueUnsolicitedTurnAtomic(
+    input: ConversationUnsolicitedTurnInput,
+  ): Promise<ConversationUnsolicitedTurnIssue>;
+  /**
    * The proxy's grant question on a turn's permit. A new exchange is a new
    * call of the turn: counted by the call limits, reserved on the account the
    * turn's root chooses and recorded bound to that exchange, or refused with
@@ -240,6 +251,25 @@ export type ConversationMentionTurnIssue =
   | { outcome: "source_deleted" }
   // A try again whose agent's rollout is no longer on.
   | { outcome: "rollout_off" };
+
+export type ConversationUnsolicitedTurnInput = Omit<
+  ConversationTurnPermitInput,
+  "requester" | "root" | "topicId"
+> & {
+  /** The message answered: the turn's source, in its thread. */
+  message: { teamId: string; channelId: string; ts: string; threadTs: string };
+};
+
+export type ConversationUnsolicitedTurnIssue =
+  | (Extract<ConversationTurnPermitIssue, { outcome: "issued" }> & {
+      topicId: ConversationTopicId;
+    })
+  | Exclude<ConversationTurnPermitIssue, { outcome: "issued" }>
+  // The message is engaged already: a turn answers it.
+  | { outcome: "duplicate" }
+  | { outcome: "source_deleted" }
+  // The agent's rollout is not on: M1's verdict is a record only.
+  | { outcome: "not_on" };
 
 export type ConversationTurnPermitIssue =
   // `place`: the conversation's kind, which says what the turn may decide.

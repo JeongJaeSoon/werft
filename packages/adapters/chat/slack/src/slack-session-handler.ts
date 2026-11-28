@@ -741,6 +741,71 @@ export function createSlackSessionHandler(
         judgment: { rule: judgeThreadReply(event.text, agent.botUserId) },
       };
     };
+    /**
+     * An unmentioned reply in a bound thread held for M1 (v1-b/U1): to go on
+     * to the work (`m1_to_task`) or be answered (`m1`) only when M1 says
+     * `speak`. `current_path` while the rollout is not on or M1's gate is
+     * closed (a shared channel), for a poster not heard, and for the reply's
+     * event put in the inbox again by such a verdict, which the work takes
+     * as before.
+     */
+    const boundReplyHeld = async (
+      sessionId: string | null,
+    ): Promise<BufferedInputReceipt | "current_path"> => {
+      const key = {
+        kind: "channel" as const,
+        workspaceId: agent.workspaceId,
+        agentId: agent.agentId,
+        teamId: claim.teamId,
+        channelId: event.channel,
+      };
+      const place = await deps.buffer.place(key);
+      if (place.rollout !== "on") return "current_path";
+      if (!(await deps.buffer.judgesBoundReply({ ...key, ts: event.ts }))) {
+        return "current_path";
+      }
+      if (!messageTextSchema.safeParse(event.text).success) {
+        return "current_path";
+      }
+      const unheard = await deps.audience.unheardReason({
+        agentId: agent.agentId,
+        teamId: claim.teamId,
+        channelId: event.channel,
+        slackUserId: event.user,
+        botToken: await deps.botToken(claim.workspaceId, claim.slackAppId),
+      });
+      if (unheard !== null) return "current_path";
+      const conversation = await conversationOf(
+        { dm: false, personUserId: null, channelId: event.channel },
+        claim.teamId,
+        agent,
+      );
+      if (conversation === null) {
+        throw new Error("A Slack channel has no conversation");
+      }
+      const topic = await deps.conversations.findOrCreateThreadTopic(
+        conversation.id,
+        { teamId: claim.teamId, channelId: event.channel, threadTs },
+      );
+      deps.logger.info("Slack thread reply held for the judgment", {
+        ...ids,
+        channel: event.channel,
+        thread_ts: threadTs,
+      });
+      return {
+        topicId: topic.id,
+        channelId: event.channel,
+        ts: event.ts,
+        buffered: { body: event.text, slackUserId: event.user },
+        judgment:
+          sessionId === null
+            ? "m1_engaged"
+            : {
+                sessionId,
+                rule: judgeThreadReply(event.text, agent.botUserId),
+              },
+      };
+    };
     const found = await deps.sessionLinks.find(
       agent.installationId,
       surfaceRef,
@@ -838,6 +903,22 @@ export function createSlackSessionHandler(
     if (found === null && !mentioned && !dm && !fromBot) {
       const held = await bufferedInput();
       if (held !== "current_path") return held ?? undefined;
+    }
+    // A person's unmentioned reply in a thread bound to work, under the
+    // agent's rollout on: M1 judges it before anything takes it (v1-b/U1).
+    // A stop word goes on to stop the work.
+    if (
+      found !== null &&
+      !mentioned &&
+      !dm &&
+      !fromBot &&
+      event.thread_ts !== undefined &&
+      event.thread_ts !== event.ts &&
+      found.openedByTs !== event.ts &&
+      !isStopRequest(withoutBotMention(event.text, agent.botUserId))
+    ) {
+      const held = await boundReplyHeld(sessionId);
+      if (held !== "current_path") return held;
     }
     // A stray reply is nobody's request in any mode; skip the lookup.
     if (found === null && !mentioned && !dm && event.thread_ts !== undefined)
