@@ -116,6 +116,7 @@ async function receive(options: {
     boundReplies: {
       heldForWork: async () => options.held ?? false,
       answeredUnasked: async () => false,
+      heldWorkSession: async () => null,
       closedWork: async () =>
         (options.work ?? "closed") === "open"
           ? null

@@ -120,7 +120,7 @@ import {
   createTempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, type SQL, sql } from "drizzle-orm";
 import { drizzle as drizzlePostgres } from "drizzle-orm/node-postgres";
 import { drizzle } from "drizzle-orm/pglite";
 import { Pool } from "pg";
@@ -9990,6 +9990,79 @@ describe.each(ENGINES)(
           expect(await unaskedTurns()).toHaveLength(1);
         });
       }
+
+      test("a reply its judgment sent to the work, refused as the work began closing after it was looked at: it waits unsaid, and the work takes it once the close fails back", async () => {
+        const { fixture, handle, sessionId } = await workThread("queued");
+        await deliver(fixture, reply());
+        expect(await drain(handle)).toMatchObject({ deferred: 1 });
+        // Open work: M1's speak sends it to the work.
+        await judgeReplies("speak");
+        // The close begins right after the receive path read the work open.
+        const real = db;
+        let began = false;
+        const racing = new Proxy(real, {
+          get(target, property, receiver) {
+            if (property === "execute") {
+              return async (query: SQL) => {
+                const result = await target.execute(query);
+                const text = (
+                  target as unknown as {
+                    dialect: { sqlToQuery(q: SQL): { sql: string } };
+                  }
+                ).dialect.sqlToQuery(query).sql;
+                if (!began && text.includes("AS receipt_id")) {
+                  began = true;
+                  await target
+                    .update(sessions)
+                    .set({ admissionState: "closing" })
+                    .where(eq(sessions.id, sessionId));
+                }
+                return result;
+              };
+            }
+            const value = Reflect.get(target, property, receiver);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        });
+        db = racing;
+        const raced = handler();
+        db = real;
+        await due();
+        expect(await drain(raced.handle)).toMatchObject({
+          processed: 0,
+          deferred: 1,
+        });
+        expect(began).toBe(true);
+        expect(raced.threadNotices).toEqual([]);
+        // The close failed back to open work.
+        await db
+          .update(sessions)
+          .set({ admissionState: "active" })
+          .where(eq(sessions.id, sessionId));
+        await due();
+        expect(await drain(handle)).toMatchObject({ processed: 1 });
+        expect(await messagesOf(sessionId)).toEqual([
+          "summarize the thread",
+          "and the next step",
+        ]);
+        expect(await unaskedTurns()).toEqual([]);
+      });
+
+      test("a reply held for a work other than its thread's now: neither takes it", async () => {
+        const { fixture, handle, sessionId } = await workThread("queued");
+        await deliver(fixture, reply());
+        expect(await drain(handle)).toMatchObject({ deferred: 1 });
+        // The work it was held for is gone; the thread's work is open.
+        await db
+          .update(schema.conversationJudgments)
+          .set({ workSessionId: randomUUID() })
+          .where(eq(schema.conversationJudgments.grade, "m1_to_task"));
+        await judgeReplies("failed");
+        await due();
+        expect(await drain(handle)).toMatchObject({ processed: 1 });
+        expect(await messagesOf(sessionId)).toEqual(["summarize the thread"]);
+        expect(await unaskedTurns()).toEqual([]);
+      });
 
       test("work closed while its reply waited: the reply keeps its grade and is judged once", async () => {
         const { fixture, handle, sessionId } = await workThread("queued");

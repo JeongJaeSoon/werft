@@ -34,7 +34,6 @@ const atPost = (post: Post, alias: string) => {
     AND ${a}.slack_channel_id = ${post.channelId}`;
 };
 
-/** The post's `m1_to_task` records still in the buffer's time (alias `j`). */
 /** The unasked turn of the post held for its work, by the post: its held row may be gone. */
 const answeredOf = (post: Post): SQL => sql`
   SELECT 1 FROM conversation_judgments j
@@ -42,6 +41,7 @@ const answeredOf = (post: Post): SQL => sql`
     AND j.target_ts = ${post.ts} AND j.turn_id IS NOT NULL
   LIMIT 1`;
 
+/** The post's `m1_to_task` records still in the buffer's time (alias `j`). */
 const taskJudgmentsOf = (post: Post): SQL => sql`${atPost(post, "j")}
   AND j.grade = 'm1_to_task' AND j.refs = ARRAY[${post.ts}]::text[]
   AND j.created_at > now() - ${secs(JUDGMENT_BUFFER_TTL_MS)}`;
@@ -149,6 +149,16 @@ export function createPostgresBoundReplyStore(
           LIMIT 1`),
       );
       return rows.length > 0;
+    },
+
+    async heldWorkSession(post) {
+      const [row] = rowsOf<{ work_session_id: string | null }>(
+        await db.execute(sql`
+          SELECT j.work_session_id FROM conversation_judgments j
+          WHERE ${taskJudgmentsOf(post)}
+          ORDER BY j.created_at DESC LIMIT 1`),
+      );
+      return row?.work_session_id ?? null;
     },
 
     async answeredUnasked(post) {

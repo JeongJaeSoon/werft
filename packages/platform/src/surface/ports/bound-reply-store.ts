@@ -70,6 +70,11 @@ export interface BoundReplyStore {
    */
   answeredUnasked(post: BoundReplyPost): Promise<boolean>;
   /**
+   * The session whose work the post was held for (`m1_to_task`), as its
+   * hold read it; null for a record from before that was kept.
+   */
+  heldWorkSession(post: BoundReplyPost): Promise<string | null>;
+  /**
    * Holds the reply for its `m1_to_task` judgment the first time it is
    * asked, under the gate a judgment is written under, and answers what
    * became of it each time after: once the judgment has waited `waitMs`

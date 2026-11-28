@@ -434,6 +434,8 @@ export function createSlackSessionHandler(
     // The held text a work's turn takes in place of the event's, an edit
     // having changed it while M1 judged it.
     let editedText: string | undefined;
+    // A reply its hold for its work's judgment sent to that work's session.
+    let heldReply = false;
 
     /**
      * What becomes of a person's unmentioned reply in a thread bound to work
@@ -611,8 +613,16 @@ export function createSlackSessionHandler(
       // goes to no session. M1's speak answered it with an unasked turn as
       // it was written, and a reply M1 could not judge is left.
       // Closing, the close may fail back to open work, which takes the reply
-      // then: it waits the drain out, as a mention does.
-      const closed = await deps.boundReplies.closedWork(sessionId);
+      // then: it waits the drain out, as a mention does. The work is the one
+      // it was held for, whatever the thread is bound to now.
+      const heldWork =
+        (await deps.boundReplies.heldWorkSession({
+          agentId: agent.agentId,
+          teamId: claim.teamId,
+          channelId: event.channel,
+          ts: event.ts,
+        })) ?? sessionId;
+      const closed = await deps.boundReplies.closedWork(heldWork);
       if (closed?.admission === "closing") {
         throw new SlackInboundDeferred(SLACK_CLOSED_WORK_MENTION_RECHECK_MS);
       }
@@ -620,6 +630,15 @@ export function createSlackSessionHandler(
         deps.logger.info("Slack reply of work closed while it waited", ids);
         return null;
       }
+      // Another work's thread since: not the work it was written to.
+      if (heldWork !== sessionId) {
+        deps.logger.info("Slack reply held for work its thread left", {
+          ...ids,
+          session_id: heldWork,
+        });
+        return null;
+      }
+      heldReply = true;
       return "session";
     };
 
@@ -640,6 +659,8 @@ export function createSlackSessionHandler(
       link: SessionLinkRecord,
       sessionId: string,
       refused = false,
+      // A reply its hold sent to the work waits unsaid: nobody asked.
+      say = true,
     ): Promise<void> => {
       const place = await deps.buffer.place({
         kind: "channel",
@@ -661,7 +682,7 @@ export function createSlackSessionHandler(
         );
         throw new SlackInboundDeferred(SLACK_CLOSED_WORK_MENTION_RECHECK_MS);
       }
-      if (closed.admission === "closing" && !fromBot) {
+      if (closed.admission === "closing" && !fromBot && say) {
         await deps.notices.recordInThread({
           workspaceId: agent.workspaceId,
           agentId: agent.agentId,
@@ -1738,12 +1759,12 @@ export function createSlackSessionHandler(
       // Closed since the look above: the mention waits as it would have.
       if (
         (error.code === "SESSION_CLOSING" || error.code === "SESSION_CLOSED") &&
-        mentioned &&
+        (mentioned || heldReply) &&
         !dm &&
         link.sessionId !== null &&
         link.openedByTs !== event.ts
       ) {
-        await waitOutClosedWork(link, link.sessionId, true);
+        await waitOutClosedWork(link, link.sessionId, true, mentioned);
       }
       deps.logger.warn("Slack input refused by the session", {
         ...ids,
