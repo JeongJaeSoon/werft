@@ -269,6 +269,7 @@ import {
   assertCheckpointBucketProtection,
   checkpointGitMemoryBytesFromEnv,
   checkpointObjectRouteSigner,
+  checkpointObjectStoreHost,
   checkpointObjectsAtStart,
   checkpointStorageConfigFromEnv,
   createApiCheckpoints,
@@ -1081,7 +1082,17 @@ const workspaceMcpHosts = workspaceMcpHostsFromEnv(process.env);
 // Kept off every upstream registered as private, at registration and in
 // each grant's deny list. A value that names no host stops the start.
 const installationHosts = createInstallationHosts({
-  names: installationHostNames(process.env),
+  names: [
+    ...new Set([
+      ...installationHostNames(process.env),
+      // The object store as its signer addresses it: with no endpoint set
+      // that is the bucket's own name at AWS, which a private zone may
+      // answer with an address inside.
+      ...(checkpointStorage === "disabled"
+        ? []
+        : [checkpointObjectStoreHost(checkpointStorage)]),
+    ]),
+  ],
 });
 // Asked on a timer too, not only when a private grant is: a replica that
 // has given none for a while still learns the addresses its hosts hold, and
