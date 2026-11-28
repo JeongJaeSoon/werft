@@ -19,7 +19,7 @@ import type {
   PauseSessionRequest,
   PostSessionMessageRequest,
   PostSessionMessageResponse,
-  Receipt,
+  ReceiptRead,
   RecoveryDecisionRequest,
   RepositoryCeiling,
   ResumeSessionRequest,
@@ -296,7 +296,7 @@ export function payloadHash(payload: unknown): string {
  * credentials also targets the agent, but records only what its caller
  * asked for, so it stays readable as before.
  */
-export function settingsAgentOf(receipt: Receipt): string | null {
+export function settingsAgentOf(receipt: ReceiptRead): string | null {
   const target = receipt.target_ref;
   if (!("resource" in target) || receipt.operation === "create_session") {
     return null;
@@ -1891,7 +1891,7 @@ export function createSessionService(deps: {
     // not only the one that issued the command; another owner sees the same
     // 404 as for a receipt that never existed, and so does anyone outside
     // the share of the session it names.
-    async getReceipt(actor: Caller, receiptId: string): Promise<Receipt> {
+    async getReceipt(actor: Caller, receiptId: string): Promise<ReceiptRead> {
       // Resolve only within the caller's partition. A null session would
       // incorrectly require an agent key to read across all agents.
       const receipt = await reader.getReceipt(actor.ownerId, receiptId);
@@ -1921,7 +1921,8 @@ export function createSessionService(deps: {
         if (
           refs.agentIds.length > 0 ||
           refs.releaseIds.length > 0 ||
-          (sessionId !== null && receipt.operation in RECEIPT_AGENT_REFS)
+          (sessionId !== null &&
+            Object.hasOwn(RECEIPT_AGENT_REFS, receipt.operation))
         ) {
           hidden = await reader.hiddenAgentRefs(
             actor.ownerId,

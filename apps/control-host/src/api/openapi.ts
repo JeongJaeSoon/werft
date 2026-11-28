@@ -280,6 +280,7 @@ import {
   readyResponseSchema,
   receiptAcceptedResponseSchema,
   receiptIdParamsSchema,
+  receiptSchema,
   recheckSlackAppEventsResponseSchema,
   recoveryDecisionRequestSchema,
   registerGitHubSkillRequestSchema,
@@ -632,7 +633,8 @@ const responseComponents = {
   AgentGitHubActivityResponse: agentGitHubActivityResponseSchema,
   ReceiptAcceptedResponse: receiptAcceptedResponseSchema,
   TerminateSessionResponse: terminateSessionResponseSchema,
-  Receipt: getReceiptResponseSchema,
+  Receipt: receiptSchema,
+  ReceiptRead: getReceiptResponseSchema,
   BootstrapResponse: bootstrapResponseSchema,
   LoginResponse: loginResponseSchema,
   LoginMethodsResponse: loginMethodsResponseSchema,
@@ -9787,7 +9789,7 @@ export const API_ROUTE_DECLARATIONS = [
     scope: "read",
     success: {
       status: 200,
-      schema: "Receipt",
+      schema: "ReceiptRead",
       description: "The receipt as it stands now.",
       example: {
         id: EXAMPLE_RECEIPT_ID,

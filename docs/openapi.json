@@ -14961,6 +14961,363 @@
         ],
         "additionalProperties": false
       },
+      "ReceiptRead": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "operation": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What the receipt records. Known values are listed by the write side, but a newer server may return a value this version does not know: show it as is."
+          },
+          "target_ref": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "session_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "turn_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "request_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "session_id",
+                  "turn_id",
+                  "request_id"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "resource": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "workspace",
+                          "session",
+                          "invite",
+                          "agent",
+                          "agent_release",
+                          "surface_binding",
+                          "session_link",
+                          "dispatch",
+                          "memory",
+                          "routine",
+                          "artifact",
+                          "mcp_server",
+                          "api_key",
+                          "team",
+                          "extension_bundle",
+                          "conversation"
+                        ]
+                      },
+                      "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 512
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "workspace_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "resource",
+                  "workspace_id"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "user_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "workspace_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  }
+                },
+                "required": [
+                  "user_id",
+                  "workspace_id"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "actor": {
+            "type": "object",
+            "properties": {
+              "principal": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "api_key",
+                      "user",
+                      "installation"
+                    ]
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id"
+                ],
+                "additionalProperties": false
+              },
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "agent_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "principal",
+              "actor_user_id",
+              "agent_id"
+            ],
+            "additionalProperties": false
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "succeeded",
+              "failed",
+              "unknown"
+            ]
+          },
+          "result": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For create_session and append_message: the acceptance response exactly as first returned, never rewritten; its receipt_status and status are acceptance-time values. The current outcome is this receipt's status and error; the turn's result is read from GET /v1/sessions/{session_id}/turns/{turn_id} using target_ref. For interrupt: `{turn_id, terminal, no_op}` once settled, where `no_op: true` means the turn reached `terminal` on its own and the interrupt did nothing."
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "enum": [
+                      "BAD_REQUEST",
+                      "UNAUTHORIZED",
+                      "FORBIDDEN",
+                      "BOOTSTRAP_DONE",
+                      "NOT_FOUND",
+                      "PAYLOAD_TOO_LARGE",
+                      "REQUEST_TIMEOUT",
+                      "UNSUPPORTED_CAPABILITY",
+                      "RATE_LIMITED",
+                      "STORAGE_LIMIT_EXCEEDED",
+                      "BUDGET_EXCEEDED",
+                      "WORKSPACE_QUOTA_EXCEEDED",
+                      "INTERNAL_ERROR",
+                      "REVISION_CONFLICT",
+                      "IDEMPOTENCY_CONFLICT",
+                      "REQUEST_EXPIRED",
+                      "REQUEST_STALE",
+                      "SESSION_PAUSED",
+                      "SESSION_RESUMING",
+                      "SESSION_CLOSED",
+                      "SESSION_CLOSING",
+                      "SESSION_STOPPED",
+                      "RECOVERY_REQUIRED",
+                      "CHECKPOINT_UNAVAILABLE",
+                      "PAUSE_COMMITTING",
+                      "PAUSE_CANCELLED",
+                      "CONTROL_SUPERSEDED",
+                      "TURN_NOT_STARTED",
+                      "BACKEND_UNAVAILABLE",
+                      "LAUNCH_FAILED",
+                      "NO_CAPACITY",
+                      "CODEX_SANDBOX_NOT_INSTALLED",
+                      "WORKER_OWNERSHIP_LOST",
+                      "CATALOG_MISMATCH",
+                      "TAKEOVER_REQUIRED",
+                      "SOURCE_DELETED",
+                      "SLACK_NOT_INSTALLED",
+                      "LINK_TEAM_MISMATCH",
+                      "LINK_TAKEN",
+                      "LINK_EXISTS",
+                      "AGENT_IDENTITY_TAKEN",
+                      "CONFIG_TOKEN_INVALID",
+                      "SLACK_APP_CREATING",
+                      "SLACK_APP_GONE",
+                      "AGENT_NOT_ACTIVE",
+                      "SLACK_INSTALL_STATE_INVALID",
+                      "SLACK_INSTALL_DENIED",
+                      "SLACK_INSTALL_REJECTED",
+                      "SLACK_INSTALL_CONFLICT",
+                      "SLACK_LINK_NOT_CONFIGURED",
+                      "GITHUB_LINK_NOT_CONFIGURED",
+                      "INVITE_EXPIRED",
+                      "INVITE_USED",
+                      "LAST_OWNER",
+                      "OWNER_PROTECTED",
+                      "SELF_PROTECTED",
+                      "MEMBER_DISABLED",
+                      "ACCOUNT_DISABLED",
+                      "SCOPE_NOT_GRANTABLE",
+                      "CREDENTIAL_UNBOUND",
+                      "AGENT_NOT_RUNNABLE",
+                      "CREDENTIAL_REF_IN_USE",
+                      "LOGIN_LINK_REQUIRED",
+                      "RELEASE_SPEC_UNAVAILABLE",
+                      "ALREADY_EXISTS",
+                      "NOT_READY",
+                      "CURSOR_EXPIRED",
+                      "LEASE_EXPIRED",
+                      "STALE_EPOCH",
+                      "PUSH_SOURCE_MISSING",
+                      "PUSH_REQUEST_OPEN",
+                      "PUSH_REQUEST_RESOLVED",
+                      "PUSH_REQUEST_DECIDED",
+                      "CHECKPOINT_MOVED",
+                      "PUSH_NOT_PUSHED",
+                      "PULL_REQUEST_MISSING",
+                      "PULL_REQUEST_MERGED",
+                      "PULL_REQUEST_MERGE_BLOCKED",
+                      "PULL_REQUEST_CLOSED",
+                      "GITHUB_REFUSED",
+                      "GITHUB_APP_CONFLICT",
+                      "GITHUB_UNAVAILABLE",
+                      "INSTALLATION_SUSPENDED",
+                      "PENDING_REQUESTS_OPEN",
+                      "PERMISSION_WAIT_ABOVE_LIMIT",
+                      "TEAM_MANAGES_AGENTS",
+                      "VARIABLE_NAME_INVALID",
+                      "VARIABLE_NAME_RESERVED",
+                      "VARIABLE_VALUE_INVALID",
+                      "VARIABLE_VALUE_TOO_LARGE",
+                      "VARIABLE_QUOTA_EXCEEDED",
+                      "MCP_SERVER_QUOTA_EXCEEDED",
+                      "VARIABLE_UNRESOLVED",
+                      "SECRET_ACK_REQUIRED",
+                      "SECRET_GRANT_ALL_FORBIDDEN",
+                      "SECRET_ENV_UNSUPPORTED",
+                      "VERSION_MISMATCH",
+                      "PRECONDITION_REQUIRED",
+                      "DECISION_MODEL_REQUIRED",
+                      "ENDPOINT_RETIRED"
+                    ]
+                  },
+                  "message": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "code",
+                  "message"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": [
+          "id",
+          "operation",
+          "target_ref",
+          "status",
+          "result",
+          "error",
+          "created_at",
+          "updated_at"
+        ],
+        "additionalProperties": false
+      },
       "BootstrapResponse": {
         "type": "object",
         "properties": {
@@ -122913,7 +123270,7 @@
                   "updated_at": "2026-10-11T08:20:09Z"
                 },
                 "schema": {
-                  "$ref": "#/components/schemas/Receipt"
+                  "$ref": "#/components/schemas/ReceiptRead"
                 }
               }
             }

@@ -17,10 +17,12 @@ import {
   type PostSessionMessageResponse,
   postSessionMessageResponseSchema,
   type Receipt,
+  type ReceiptRead,
   type ReceiptSessionTarget,
   type RequesterAuth,
   type RuntimeKind,
   readStoredEvent,
+  receiptReadSchema,
   receiptSchema,
   SESSION_STATUS_VALUES,
   type SessionEventPayload,
@@ -1352,7 +1354,7 @@ export function createPostgresSessionUnitOfWork(
   };
 }
 
-export function receiptFromRow(row: typeof receipts.$inferSelect): Receipt {
+function receiptFields(row: typeof receipts.$inferSelect) {
   // A resource or user target (the interface-track routes, account
   // recovery) parses as stored, strict, rather than being forced into
   // the session shape.
@@ -1365,9 +1367,7 @@ export function receiptFromRow(row: typeof receipts.$inferSelect): Receipt {
           turn_id: stored.turn_id ?? null,
           request_id: stored.request_id ?? null,
         };
-  // operation/error are stored untyped; a row this reader cannot
-  // represent is a bug in the writer, so let the parse throw.
-  return receiptSchema.parse({
+  return {
     id: row.id,
     operation: row.operation,
     target_ref: target,
@@ -1377,7 +1377,21 @@ export function receiptFromRow(row: typeof receipts.$inferSelect): Receipt {
     error: row.error ?? null,
     created_at: row.createdAt.toISOString(),
     updated_at: row.updatedAt.toISOString(),
-  });
+  };
+}
+
+// operation/error are stored untyped; a row this reader cannot represent is
+// a bug in the writer, so let the parse throw.
+export function receiptFromRow(row: typeof receipts.$inferSelect): Receipt {
+  return receiptSchema.parse(receiptFields(row));
+}
+
+// The single read passes an operation this build does not know, as a newer
+// replica may have written it; the row stays visible under its stored name.
+export function receiptReadFromRow(
+  row: typeof receipts.$inferSelect,
+): ReceiptRead {
+  return receiptReadSchema.parse(receiptFields(row));
 }
 
 const CREATED_AT_TEXT = sql<string>`${sessions.createdAt}::text`;
@@ -2489,13 +2503,13 @@ export function createPostgresSessionReader(
     async getReceipt(
       ownerId: string,
       receiptId: string,
-    ): Promise<Receipt | null> {
+    ): Promise<ReceiptRead | null> {
       const [row] = await db
         .select()
         .from(receipts)
         .where(and(eq(receipts.id, receiptId), eq(receipts.ownerId, ownerId)))
         .limit(1);
-      return row ? receiptFromRow(row) : null;
+      return row ? receiptReadFromRow(row) : null;
     },
 
     async hiddenAgentRefs(ownerId, viewer, refs) {

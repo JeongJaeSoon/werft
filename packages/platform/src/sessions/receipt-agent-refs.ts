@@ -1,4 +1,4 @@
-import type { Receipt, ReceiptOperation } from "@werft-ai/contracts";
+import type { ReceiptOperation, ReceiptRead } from "@werft-ai/contracts";
 
 /**
  * Where a receipt names an agent or one of its releases, so a
@@ -129,17 +129,24 @@ export const RECEIPT_AGENT_REFS: Partial<Record<ReceiptOperation, AgentRefs>> =
     fetch_github_package: EXCHANGE,
   };
 
+// An operation this build does not know has no row, as one that carries no ids.
+function rowOf(operation: string): AgentRefs | undefined {
+  return Object.hasOwn(RECEIPT_AGENT_REFS, operation)
+    ? RECEIPT_AGENT_REFS[operation as ReceiptOperation]
+    : undefined;
+}
+
 type Hidden = {
   agentIds: ReadonlySet<string>;
   releaseIds: ReadonlySet<string>;
 };
 
 /** The ids a receipt names through its table row, to ask which of them are hidden. */
-export function agentRefsOf(receipt: Receipt): {
+export function agentRefsOf(receipt: ReceiptRead): {
   agentIds: string[];
   releaseIds: string[];
 } {
-  const row = RECEIPT_AGENT_REFS[receipt.operation];
+  const row = rowOf(receipt.operation);
   const found = { agentIds: [] as string[], releaseIds: [] as string[] };
   // Whichever the operation, an agent key's receipt names that agent as actor.
   if (receipt.actor?.agent_id) found.agentIds.push(receipt.actor.agent_id);
@@ -170,8 +177,8 @@ export function agentRefsOf(receipt: Receipt): {
 }
 
 /** Whether the receipt's own target is a hidden agent or release. */
-export function targetsHidden(receipt: Receipt, hidden: Hidden): boolean {
-  const row = RECEIPT_AGENT_REFS[receipt.operation];
+export function targetsHidden(receipt: ReceiptRead, hidden: Hidden): boolean {
+  const row = rowOf(receipt.operation);
   const target = receipt.target_ref;
   if (
     row?.target === undefined ||
@@ -190,7 +197,10 @@ export function targetsHidden(receipt: Receipt, hidden: Hidden): boolean {
  * null and a list loses them. Everything else stays, so the receipt reads as
  * it did for a person who could see the agent, minus what names it.
  */
-export function maskAgentRefs(receipt: Receipt, hidden: Hidden): Receipt {
+export function maskAgentRefs(
+  receipt: ReceiptRead,
+  hidden: Hidden,
+): ReceiptRead {
   const actor = receipt.actor;
   return maskResult(
     actor?.agent_id && hidden.agentIds.has(actor.agent_id.toLowerCase())
@@ -200,8 +210,8 @@ export function maskAgentRefs(receipt: Receipt, hidden: Hidden): Receipt {
   );
 }
 
-function maskResult(receipt: Receipt, hidden: Hidden): Receipt {
-  const row = RECEIPT_AGENT_REFS[receipt.operation];
+function maskResult(receipt: ReceiptRead, hidden: Hidden): ReceiptRead {
+  const row = rowOf(receipt.operation);
   if (row === undefined || receipt.result === null) return receipt;
   const result = { ...(receipt.result as Record<string, unknown>) };
   for (const [fields, ids, lower] of [
