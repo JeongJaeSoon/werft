@@ -44,7 +44,10 @@ export type GateSpec = {
   finalDelayMs?: number;
   id: string;
   steps: GateStep[];
-  /** Tokens each scripted reply reports; only the Responses fake reads it. */
+  /**
+   * Tokens each scripted reply reports. `{}` has the Messages fake name no
+   * count at all, as some gateways answer.
+   */
   usage?: { input_tokens: number; output_tokens: number };
   /**
    * A text to look for in what the model was sent, as base64 so that the
@@ -304,7 +307,7 @@ export function replyFor(
   if (plan === null) return textReply(fallback);
   const { spec, step } = plan;
   const next = spec.steps[step];
-  const reply =
+  const scripted =
     next === undefined
       ? textReply(finalOf(spec, [request.body.system, messages]))
       : toolReply(
@@ -312,6 +315,8 @@ export function replyFor(
           next.input,
           unusedId(`toolu_gate_${spec.id}_${step}`, toolUseIdsIn(messages)),
         );
+  const reply =
+    spec.usage === undefined ? scripted : { ...scripted, usage: spec.usage };
   const delayMs = next === undefined ? spec.finalDelayMs : next.delayMs;
   return delayMs === undefined ? reply : Bun.sleep(delayMs).then(() => reply);
 }

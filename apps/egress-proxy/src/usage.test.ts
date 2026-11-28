@@ -679,3 +679,223 @@ describe("usageMeter on a Responses answer", () => {
     ).toMatchObject({ web_search_requests: 2 });
   });
 });
+
+describe("an answer whose usage names no token count", () => {
+  // What the request alone says it may use: its bytes in, its cap out.
+  const fromRequest = {
+    model: "claude-sonnet-4-5",
+    input_tokens: request.byteLength,
+    output_tokens: 500,
+    estimated: true,
+  };
+  const json = (usage: unknown) =>
+    metered("application/json", [
+      JSON.stringify({ model: "claude-sonnet-4-5", usage }),
+    ]);
+
+  test("an empty usage is charged from its request, as no usage is", () => {
+    expect(json({})).toMatchObject(fromRequest);
+    expect(json([])).toMatchObject(fromRequest);
+    expect(
+      metered("application/json", ['{"model":"claude-sonnet-4-5"}']),
+    ).toMatchObject(fromRequest);
+  });
+
+  test("a negative too small to read is no count, though it parses as -0", () => {
+    expect(
+      metered("application/json", [
+        '{"model":"claude-sonnet-4-5","usage":{"input_tokens":-1e-400}}',
+      ]),
+    ).toMatchObject(fromRequest);
+  });
+
+  test("counts that are null, negative, fractional or strings name no token", () => {
+    expect(
+      json({
+        input_tokens: null,
+        output_tokens: "40",
+        cache_creation_input_tokens: -1,
+        cache_read_input_tokens: 1.5,
+        server_tool_use: { web_search_requests: 2 },
+        speed: "standard",
+      }),
+    ).toMatchObject(fromRequest);
+  });
+
+  test("only the tokens come from the request: the searches, speed and model the answer named stay", () => {
+    expect(
+      json({ server_tool_use: { web_search_requests: 2 }, speed: "fast" }),
+    ).toMatchObject({
+      ...fromRequest,
+      web_search_requests: 2,
+      speed: "fast",
+    });
+    // An alias nothing prices keeps its name, so the call is still of
+    // unknown price whatever the request asked for.
+    for (const body of [
+      '{"model":"alias-nothing-prices","usage":{}}',
+      '{"model":"alias-nothing-prices"}',
+    ]) {
+      expect(metered("application/json", [body])).toMatchObject({
+        ...fromRequest,
+        model: "alias-nothing-prices",
+      });
+    }
+  });
+
+  test("a model name no report can carry is not the answer's: the request's is charged", () => {
+    const lone = String.fromCharCode(0xd800);
+    for (const model of ["", "m".repeat(257), 7, "\x00", "a\nb", lone]) {
+      expect(
+        metered("application/json", [JSON.stringify({ model, usage: {} })]),
+      ).toMatchObject(fromRequest);
+    }
+    const stream = sse([
+      { ...started, message: { ...started.message, model: "", usage: {} } },
+      { type: "message_stop" },
+    ]);
+    expect(metered("text/event-stream", [stream])).toMatchObject(fromRequest);
+  });
+
+  test("a speed or geo Postgres cannot store is unknown, so priced high", () => {
+    const lone = String.fromCharCode(0xd800);
+    for (const name of ["\x00", lone]) {
+      expect(
+        json({ input_tokens: 5, speed: name, inference_geo: `us${name}` }),
+      ).toMatchObject({
+        input_tokens: 5,
+        speed: "unknown",
+        inference_geo: "unknown",
+      });
+      // A service tier names the speed too, on an answer with no usage.
+      expect(
+        metered("application/json", [
+          JSON.stringify({ model: "gpt-5.5", service_tier: name }),
+        ]),
+      ).toMatchObject({ speed: "unknown", estimated: true });
+    }
+  });
+
+  test("one count read is a measured answer: the rest are 0, an explicit 0 stands", () => {
+    expect(json({ output_tokens: 7 })).toMatchObject({
+      model: "claude-sonnet-4-5",
+      input_tokens: 0,
+      output_tokens: 7,
+      estimated: false,
+    });
+    expect(json({ input_tokens: 0, output_tokens: 0 })).toMatchObject({
+      input_tokens: 0,
+      output_tokens: 0,
+      estimated: false,
+    });
+    expect(json({ input_tokens: 12, output_tokens: "x" })).toMatchObject({
+      input_tokens: 12,
+      output_tokens: 0,
+      estimated: false,
+    });
+  });
+
+  test("a full usage is read as before", () => {
+    expect(
+      json({
+        input_tokens: 100,
+        output_tokens: 20,
+        cache_read_input_tokens: 5,
+      }),
+    ).toEqual({
+      model: "claude-sonnet-4-5",
+      input_tokens: 100,
+      output_tokens: 20,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 5,
+      cache_creation_1h_input_tokens: 0,
+      ...noTools,
+      estimated: false,
+    });
+  });
+
+  test("a stream that stops with empty usage is charged from its request and what it delivered", () => {
+    const quiet = { ...started, message: { ...started.message, usage: {} } };
+    const short = sse([
+      quiet,
+      { type: "message_delta", delta: {}, usage: {} },
+      { type: "message_stop" },
+    ]);
+    expect(metered("text/event-stream", [short])).toMatchObject(fromRequest);
+    const long = sse([
+      quiet,
+      {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "text_delta", text: "x".repeat(900) },
+      },
+      { type: "message_delta", delta: {} },
+      { type: "message_stop" },
+    ]);
+    expect(metered("text/event-stream", [long])).toMatchObject({
+      input_tokens: request.byteLength,
+      output_tokens: 900,
+      estimated: true,
+    });
+  });
+
+  test("a stream whose message_start named its input is measured from there", () => {
+    const stream = sse([
+      started,
+      { type: "message_delta", delta: {}, usage: {} },
+      { type: "message_stop" },
+    ]);
+    expect(metered("text/event-stream", [stream])).toMatchObject({
+      input_tokens: 100,
+      output_tokens: 1,
+      cache_read_input_tokens: 40,
+      estimated: false,
+    });
+  });
+});
+
+describe("a Responses answer whose usage names no token count", () => {
+  const ask = encoder.encode(
+    JSON.stringify({ model: "gpt-5.5", max_output_tokens: 300 }),
+  );
+  const read = (contentType: string, body: string) => {
+    const meter = usageMeter(contentType, { responses: true });
+    meter.observe(encoder.encode(body));
+    return meter.result(ask);
+  };
+  const fromRequest = {
+    model: "gpt-5.5",
+    input_tokens: ask.byteLength,
+    output_tokens: 300,
+    estimated: true,
+  };
+
+  test("an empty usage in JSON or in response.completed is charged from its request", () => {
+    expect(
+      read("application/json", '{"model":"gpt-5.5","usage":{}}'),
+    ).toMatchObject(fromRequest);
+    expect(
+      read(
+        "text/event-stream",
+        sse([
+          {
+            type: "response.completed",
+            response: { model: "gpt-5.5", usage: { input_tokens: null } },
+          },
+        ]),
+      ),
+    ).toMatchObject(fromRequest);
+  });
+
+  test("a cached share alone is a count read", () => {
+    expect(
+      read(
+        "application/json",
+        JSON.stringify({
+          model: "gpt-5.5",
+          usage: { input_tokens_details: { cached_tokens: 30 } },
+        }),
+      ),
+    ).toMatchObject({ cache_read_input_tokens: 30, estimated: false });
+  });
+});

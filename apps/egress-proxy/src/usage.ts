@@ -48,6 +48,31 @@ const MAX_JSON_BYTES = 8 * 1024 * 1024;
 const MAX_EVENT_LINE_BYTES = 256 * 1024;
 /** What a request that names no model is reported as: nothing prices it. */
 const UNKNOWN_MODEL = "unknown";
+/** The longest model name the API's report schema accepts. */
+const MAX_MODEL_LENGTH = 256;
+
+/**
+ * A name Postgres can store: no NUL (so, here, no control character) and no
+ * lone surrogate, which jsonb refuses. An answer's name that is not one
+ * would fail the settlement and leave its reservation held.
+ */
+function storable(value: string): boolean {
+  return (
+    Buffer.from(value, "utf8").toString("utf8") === value &&
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: what it refuses
+    !/[\x00-\x1f\x7f]/.test(value)
+  );
+}
+
+/** An answer's model as a report can carry it; anything else names none. */
+function modelOf(value: unknown): string | undefined {
+  return typeof value === "string" &&
+    value !== "" &&
+    value.length <= MAX_MODEL_LENGTH &&
+    storable(value)
+    ? value
+    : undefined;
+}
 /** Longer than any speed's or geo's name; what the API's report schema accepts. */
 const MAX_NAME_LENGTH = 64;
 
@@ -64,7 +89,8 @@ function nameOf(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined;
   return typeof value === "string" &&
     value !== "" &&
-    value.length <= MAX_NAME_LENGTH
+    value.length <= MAX_NAME_LENGTH &&
+    storable(value)
     ? value
     : "unknown";
 }
@@ -141,8 +167,12 @@ function responseExtras(answer: unknown): Counts {
   return extras;
 }
 
+/** A count is a safe integer of 0 or more; -0 is a negative that rounded. */
 function count(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+  return typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value >= 0 &&
+    !Object.is(value, -0)
     ? value
     : undefined;
 }
@@ -208,6 +238,15 @@ function countsOf(value: unknown): Counts {
   const inferenceGeo = nameOf((value as Record<string, unknown>).inference_geo);
   if (inferenceGeo !== undefined) counts.inferenceGeo = inferenceGeo;
   return counts;
+}
+
+/**
+ * An answer names its use only by a token count it reads as one: a usage with
+ * none (`{}`, or each count null, negative or not a number) says no more
+ * than no usage, and is estimated as that is. A count of 0 stands.
+ */
+function namesTokens(counts: Counts): boolean {
+  return COUNTS.some((name) => counts[name] !== undefined);
 }
 
 function usageOf(
@@ -306,7 +345,7 @@ export function usageMeter(
           typeof response === "object" && response !== null
             ? (response as Record<string, unknown>)
             : undefined;
-        if (typeof answer?.model === "string") model = answer.model;
+        model = modelOf(answer?.model) ?? model;
         responses = true;
         // The tier the call runs at is known from its first event on, which
         // matters for a request that left it to `auto`.
@@ -343,7 +382,7 @@ export function usageMeter(
         }
       } else if (type === "message_start" && typeof message === "object") {
         const started = message as Record<string, unknown> | null;
-        if (typeof started?.model === "string") model = started.model;
+        model = modelOf(started?.model) ?? model;
         counts = { ...counts, ...countsOf(started?.usage) };
       } else if (type === "message_delta") {
         counts = { ...counts, ...countsOf(usage) };
@@ -410,10 +449,13 @@ export function usageMeter(
       },
       result(request) {
         if (model === undefined) return requestEstimate(request, responses);
-        if (stopped) return usageOf(model, counts, false, request);
+        const named = namesTokens(counts);
+        if (stopped && named) return usageOf(model, counts, false, request);
         // Hidden reasoning is billed as output yet never delivered, so a cut
-        // Responses stream is charged what the request allowed.
-        const allowed = responses ? requestEstimate(request, true) : undefined;
+        // Responses stream is charged what the request allowed, as is a
+        // stream that ended without naming a token.
+        const allowed =
+          responses || !named ? requestEstimate(request, responses) : undefined;
         return usageOf(
           model,
           {
@@ -454,18 +496,21 @@ export function usageMeter(
           const body = JSON.parse(decoder.decode(Buffer.concat(chunks)));
           const model = options.requestModel
             ? requested(request).model
-            : typeof body?.model === "string"
-              ? body.model
-              : undefined;
-          if (
-            model !== undefined &&
-            typeof body.usage === "object" &&
-            body.usage !== null
-          ) {
+            : modelOf(body?.model);
+          if (model !== undefined) {
+            const said = { ...countsOf(body?.usage), ...responseExtras(body) };
+            if (namesTokens(said)) return usageOf(model, said, false, request);
+            // Only the tokens come from the request: the model, searches and
+            // speed the answer named still price it, so that an alias nothing
+            // prices is not charged as the model asked for.
+            const { input_tokens, output_tokens } = requestEstimate(
+              request,
+              options.responses === true,
+            );
             return usageOf(
               model,
-              { ...countsOf(body.usage), ...responseExtras(body) },
-              false,
+              { ...said, input_tokens, output_tokens },
+              true,
               request,
             );
           }

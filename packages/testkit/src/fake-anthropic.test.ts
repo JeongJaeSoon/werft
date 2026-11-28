@@ -73,6 +73,28 @@ describe("fake Anthropic Messages API", () => {
     expect(text).toContain('"stop_reason":"tool_use"');
   });
 
+  test("a reply whose usage is empty names no token count, in JSON and in a stream", async () => {
+    server = startFakeAnthropicServer({ ...textReply("hi"), usage: {} });
+    const body = { model: "claude-sonnet-4-5", messages: [] };
+    const json = (await (await postMessages(server.url, body)).json()) as {
+      usage: Record<string, unknown>;
+    };
+    expect(json.usage).toEqual({ inference_geo: "global" });
+    const stream = await (
+      await postMessages(server.url, { ...body, stream: true })
+    ).text();
+    const usages = [...stream.matchAll(/^data: (.+)$/gm)]
+      .map((m) => JSON.parse(m[1] ?? "{}") as Record<string, unknown>)
+      .flatMap((event) =>
+        event.type === "message_start"
+          ? [(event.message as { usage: unknown }).usage]
+          : event.type === "message_delta"
+            ? [event.usage]
+            : [],
+      );
+    expect(usages).toEqual([{ inference_geo: "global" }, {}]);
+  });
+
   test("answers the auto mode safety check only when the request asks for it", async () => {
     server = startFakeAnthropicServer([
       toolReply("Bash", { command: "ls" }, "toolu_1"),

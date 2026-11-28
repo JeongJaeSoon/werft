@@ -1348,6 +1348,52 @@ describe("a model nothing prices", () => {
     ).toEqual({ outcome: "created" });
   });
 
+  // What the proxy reports for an answer with `usage: {}`: estimated from
+  // its request, never 0 measured.
+  test("a call the proxy estimated counts its tokens toward the limit, and its row says estimated", async () => {
+    const who = await owner();
+    const ledger = limited(2 * TOKENS);
+    const first = crypto.randomUUID();
+    await ledger.open({ exchangeId: first, ...who, reserve: UNPRICED });
+    await settle(who, first, { ...UNPRICED, estimated: true });
+    const [row] = await db
+      .select({
+        estimated: providerUsage.estimated,
+        priceUnknown: providerUsage.priceUnknown,
+        costUsd: providerUsage.costUsd,
+      })
+      .from(providerUsage)
+      .where(eq(providerUsage.exchangeId, first));
+    expect(row).toEqual({ estimated: true, priceUnknown: true, costUsd: 0 });
+    // 1,000 settled and this reserve reach 2,000.
+    expect(
+      (
+        await ledger.open({
+          exchangeId: crypto.randomUUID(),
+          ...who,
+          reserve: UNPRICED,
+        })
+      ).outcome,
+    ).toBe("budget_exceeded");
+  });
+
+  test("a priced call the proxy estimated is charged an amount", async () => {
+    const who = await owner();
+    const exchangeId = crypto.randomUUID();
+    await ledgerOf().open({ exchangeId, ...who, reserve: RESERVE });
+    await settle(who, exchangeId, { ...RESERVE, outputTokens: 500 });
+    const [row] = await db
+      .select({
+        estimated: providerUsage.estimated,
+        pricedBy: providerUsage.pricedBy,
+        costUsd: providerUsage.costUsd,
+      })
+      .from(providerUsage)
+      .where(eq(providerUsage.exchangeId, exchangeId));
+    expect(row).toMatchObject({ estimated: true, pricedBy: "table" });
+    expect(row?.costUsd).toBeGreaterThan(0);
+  });
+
   test("a session with no tokens of unknown price is never refused by it, however low it is set", async () => {
     const who = await owner();
     const ledger = limited(1);

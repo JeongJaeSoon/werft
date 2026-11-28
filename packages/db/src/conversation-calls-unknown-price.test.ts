@@ -570,3 +570,61 @@ describe("a conversation turn's calls on the limit on tokens of unknown price", 
     expect(marks.every((row) => row.reservePricedBy === "table")).toBe(true);
   });
 });
+
+describe("a conversation call the proxy estimated because its answer named no token", () => {
+  // What the proxy reports for an answer with `usage: {}`: the request's
+  // bytes as input and its cap as output, marked estimated.
+  const estimatedOf = (model: string): ProviderUsage => ({
+    ...usageOf(model, 1_000),
+    outputTokens: SIZE.maxTokens,
+    estimated: true,
+  });
+  const accountOf = async (userId: string) =>
+    (
+      await db
+        .select()
+        .from(budgetAccounts)
+        .where(eq(budgetAccounts.ownerId, userId))
+    )[0];
+
+  test("for a model nothing prices, its tokens count toward the month's limit and the row keeps the mark", async () => {
+    const { agentId } = await agentOf();
+    const userId = randomUUID();
+    await costOnly(userId);
+    const limit = T + 1_000 + SIZE.maxTokens;
+    const call = await issued(limit, agentId, person(userId), UNPRICED);
+    expect(await used(call, estimatedOf(UNPRICED))).toMatchObject({
+      outcome: "settled",
+      costUsd: 0,
+      pricedBy: "unknown",
+    });
+    const [row] = await db
+      .select({
+        usage: conversationCalls.usage,
+        tokens: conversationCalls.tokens,
+      })
+      .from(conversationCalls);
+    expect(row?.usage?.estimated).toBe(true);
+    expect(row?.tokens).toBe(1_000 + SIZE.maxTokens);
+    expect(await accountOf(userId)).toMatchObject({
+      spentTokens: 1_000 + SIZE.maxTokens,
+      spentCostUsd: 0,
+    });
+    // Its 1,256 settled leave less than one more reserve.
+    expect(await issue(limit, agentId, person(userId), UNPRICED)).toMatchObject(
+      { outcome: "refused", by: "unknown_price_tokens" },
+    );
+  });
+
+  test("for a priced model, it is charged an amount and its tokens", async () => {
+    const { agentId } = await agentOf();
+    const userId = randomUUID();
+    await costOnly(userId);
+    const call = await issued(1, agentId, person(userId), PRICED);
+    const settled = await used(call, estimatedOf(PRICED));
+    expect(settled).toMatchObject({ outcome: "settled", pricedBy: "table" });
+    const account = await accountOf(userId);
+    expect(account?.spentCostUsd).toBeGreaterThan(0);
+    expect(account?.spentTokens).toBe(1_000 + SIZE.maxTokens);
+  });
+});
