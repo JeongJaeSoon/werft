@@ -427,6 +427,12 @@ function unwrapped(node: ts.Node): ts.Node {
   return outer;
 }
 
+const isObjectFreeze = (callee: ts.Expression) =>
+  ts.isPropertyAccessExpression(callee) &&
+  ts.isIdentifier(callee.expression) &&
+  callee.expression.text === "Object" &&
+  callee.name.text === "freeze";
+
 function isRouteErrorKey(file: string, node: ts.Node): boolean {
   if (!file.startsWith(apiRoot)) return false;
   const value = unwrapped(node);
@@ -443,7 +449,7 @@ function isRouteErrorKey(file: string, node: ts.Node): boolean {
     while (
       ts.isCallExpression(table.parent) &&
       table.parent.arguments[0] === table &&
-      table.parent.expression.getText() === "Object.freeze"
+      isObjectFreeze(table.parent.expression)
     )
       table = unwrapped(table.parent);
     return (
@@ -556,32 +562,73 @@ function mapToken(token: string): string {
 const address =
   /(?:[a-z][a-z0-9+.-]*:(?:\\?\/|\\u002f){2}|(?<![:\w/])\/\/(?=[\w[])|[\w.-]+@[\w.-]+:)[^\s"'`<>]*/gi;
 
+/** One character of a literal's source: an escape sequence or a single unit. */
+const sourceUnit =
+  /\\(?:x[0-9a-f]{2}|u\{[0-9a-f]+\}|u[0-9a-f]{4}|[0-3][0-7]{0,2}|[4-7][0-7]?|\r\n|[\s\S])|\r\n|[\s\S]/gi;
+
 /**
- * The literals of a script whose value holds an address that its source
- * spells with an escape the pattern above does not read (a slash written as
- * a hex escape, say). The text of such a literal is left as it is.
+ * Where each character of a literal's value sits in the source: its start
+ * and its end. A literal this cannot follow is given whole to every
+ * character.
  */
-function escapedAddresses(file: string, text: string) {
+function valueSpans(piece: ts.LiteralLikeNode, source: ts.SourceFile) {
+  const start = piece.getStart(source) + 1;
+  const end =
+    piece.getEnd() -
+    (ts.isTemplateHead(piece) || ts.isTemplateMiddle(piece) ? 2 : 1);
+  const spans: (readonly [number, number])[] = [];
+  let at = start;
+  for (const [unit] of source.text.slice(start, end).matchAll(sourceUnit)) {
+    const sequence = unit.length > 1 && unit.startsWith("\\");
+    const length = !sequence
+      ? 1
+      : /^\\[\n\r\u2028\u2029]/.test(unit)
+        ? 0
+        : unit.startsWith("\\u{") &&
+            Number.parseInt(unit.slice(3, -1), 16) > 0xffff
+          ? 2
+          : 1;
+    for (let n = 0; n < length; n += 1) spans.push([at, at + unit.length]);
+    at += unit.length;
+  }
+  return spans.length === piece.text.length
+    ? spans
+    : Array.from(piece.text, () => [start, end] as const);
+}
+
+/**
+ * Addresses read in the VALUE of a script's literals, which the source may
+ * spell in a way the pattern above does not read: a slash written as an
+ * escape, "//" straight after a newline escape, a host that is an expression
+ * of a template. An expression is read as "x" and is not part of what this
+ * returns, so a path written inside one is still looked at.
+ */
+function literalAddresses(file: string, text: string) {
   const found: (readonly [number, number])[] = [];
-  if (!/\.([cm]?[jt]s|[jt]sx)$/.test(file) || !text.includes("\\"))
-    return found;
+  if (!/\.([cm]?[jt]s|[jt]sx)$/.test(file)) return found;
   const source = parsed(file, text);
-  // An address of the value that the source does not hold as it stands.
-  const spelled = (piece: ts.LiteralLikeNode) =>
-    [...piece.text.matchAll(address)].some(
-      (match) => !piece.getText(source).includes(match[0]),
-    );
   const visit = (node: ts.Node) => {
-    // The fixed text of a template is kept together, since an address may
-    // run across an expression; the expressions themselves are still read.
     const pieces = ts.isStringLiteralLike(node)
       ? [node]
       : ts.isTemplateExpression(node)
         ? [node.head, ...node.templateSpans.map((span) => span.literal)]
         : [];
-    if (pieces.some(spelled))
-      for (const piece of pieces)
-        found.push([piece.getStart(source), piece.getEnd()]);
+    const spans: (readonly [number, number] | undefined)[] = [];
+    let value = "";
+    for (const piece of pieces) {
+      if (piece !== pieces[0]) {
+        value += "x";
+        spans.push(undefined);
+      }
+      value += piece.text;
+      spans.push(...valueSpans(piece, source));
+    }
+    for (const match of value.matchAll(address))
+      for (const span of spans.slice(
+        match.index,
+        match.index + match[0].length,
+      ))
+        if (span) found.push(span);
     ts.forEachChild(node, visit);
   };
   visit(source);
@@ -600,7 +647,7 @@ function replacePaths(
     ...[...text.matchAll(address)].map(
       (found) => [found.index, found.index + found[0].length] as const,
     ),
-    ...escapedAddresses(file, text),
+    ...literalAddresses(file, text),
   ];
   return text.replace(pattern, (match: string, ...rest: unknown[]) => {
     const index = rest.find((value) => typeof value === "number") as number;
