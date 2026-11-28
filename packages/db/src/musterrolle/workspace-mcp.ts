@@ -30,7 +30,7 @@ import {
 } from "../secrets/index.ts";
 import { deletedBy, notDeleted } from "../soft-delete.ts";
 import { writeSucceededReceipt } from "../succeeded-receipt.ts";
-import { lockedRole } from "./api-keys.ts";
+import { lockedRole } from "./index.ts";
 
 // Workspace MCP servers and their one connection. Every write by a person re-reads their role under
 // lock and writes a receipt in the same transaction; no receipt or error

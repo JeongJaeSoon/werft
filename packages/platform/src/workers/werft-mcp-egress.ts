@@ -1,5 +1,5 @@
 import { signBuiltinMcpGrant } from "../action/index.ts";
-import { WERFT_MCP_METHODS } from "../werft-mcp/index.ts";
+import { WERFT_MCP_METHODS } from "../extensions/index.ts";
 import {
   forbidden,
   type McpEgressDecision,
