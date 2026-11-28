@@ -27,9 +27,11 @@ import type {
   PushActor,
   PushFollowUpStore,
   PushRequestService,
+  RequesterCloseReason,
   SurfaceBindingStore,
   SurfaceConversationScope,
   SurfaceOutboxStore,
+  TaskClose,
 } from "@werft-ai/platform";
 import {
   type AuthorizationPolicy,
@@ -116,6 +118,8 @@ export type SlackInteractionDeps = {
     "queuePushFollowUp" | "continueTurn" | "startFreshTurn"
   >;
   followUps: PushFollowUpStore;
+  /** Closes a task from its progress message's buttons (v1-b/C1). */
+  tasks?: Pick<TaskClose, "close">;
   slack: Pick<SlackBotApi, "userInfo"> &
     Required<Pick<SlackBotApi, "updateMessage" | "openView" | "updateView">> &
     Pick<SlackBotSender, "postEphemeral">;
@@ -877,6 +881,12 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       if (actionId === SLACK_INTERACTION_ACTIONS.turnStartFresh) {
         return ok(await startFreshTurn(pressed, payload.message.ts, value));
       }
+      if (actionId === SLACK_INTERACTION_ACTIONS.taskComplete) {
+        return ok(await closeTask(pressed, value, "completed"));
+      }
+      if (actionId === SLACK_INTERACTION_ACTIONS.taskCancel) {
+        return ok(await closeTask(pressed, value, "cancelled"));
+      }
       // A press names its request, which the policy reads for a requester
       // who left a private channel.
       const push =
@@ -1078,6 +1088,28 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     }
     return "started_fresh";
   }
+
+  /**
+   * [Done] or [Cancel] on a task's progress message: the task closes with
+   * that reason for whoever pressed, if they may control its session; anyone
+   * else is told so alone. The message says so on the outbox's next pass.
+   */
+  const closeTask = async (
+    pressed: Pressed,
+    value: SlackInteractionValue,
+    reason: RequesterCloseReason,
+  ): Promise<string> => {
+    if (deps.tasks === undefined) return "ignored";
+    const admitted = await admit(pressed, value.s, {}, "session.submit");
+    if ("refused" in admitted) return `refused:${admitted.refused}`;
+    const outcome = await deps.tasks.close(admitted.caller, value.s, reason);
+    if (outcome === "not_permitted") {
+      await notice(pressed, "taskCloseNotPermitted");
+      return "refused:not_permitted";
+    }
+    if (outcome === "refused") await notice(pressed, "failed");
+    return `task_${outcome}`;
+  };
 
   async function onSubmit(
     agentId: string,

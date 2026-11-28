@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import {
+  agentGitHubSettingsSchema,
   GITHUB_CEILING_DEFAULT,
   GITHUB_CEILING_NONE,
   GITHUB_FEATURES_NONE,
@@ -24,7 +25,10 @@ import {
   ensureInstalledRepositoryCeiling,
   workspaceRepositoryCeiling,
 } from "./github/github-settings.ts";
-import { createPostgresGitHubMcpStore } from "./github/mcp-egress.ts";
+import {
+  createPostgresGitHubMcpStore,
+  sessionGitHubMcpOf,
+} from "./github/mcp-egress.ts";
 import { createPostgresPushRequests } from "./push-requests.ts";
 import * as schema from "./schema.ts";
 import {
@@ -1254,6 +1258,105 @@ integration("the readers of an agent's GitHub settings", () => {
         refusal: "approval_required",
         policy_source: "release",
       });
+    });
+  });
+
+  describe("a feature key this build does not know (94S-2491)", () => {
+    const PERSON = randomUUID();
+    const KNOWN = { ...GITHUB_FEATURES_NONE, review: true };
+
+    test("every read leaves it out, the stored row keeps it, and the snapshot taken from it reads on the build before", async () => {
+      const { workspaceId, agentId, releaseId, sessionId } = await fixture({
+        source: "agent",
+      });
+      const stored = { ...KNOWN, later_switch: true };
+      await settingsRow(workspaceId, agentId, {
+        features: stored,
+        revision: 2,
+        updatedBy: PERSON,
+      });
+      const gate = createPostgresGitHubGateStore(db);
+      const read = (await gate.context(sessionId))?.policy;
+      expect(read?.settings).toMatchObject({ features: KNOWN });
+      expect(
+        read?.settings === "invalid" ? null : read?.settings?.features,
+      ).toEqual(KNOWN);
+
+      const taken = await db.transaction((tx) =>
+        captureGitHubPolicyStart(tx, releaseId),
+      );
+      expect(taken.settings.features).toEqual(KNOWN);
+      // The build before reads settings with the strict schema.
+      expect(agentGitHubSettingsSchema.safeParse(taken.settings).success).toBe(
+        true,
+      );
+      const { rows } = await pool.query<{ features: unknown }>(
+        "SELECT features FROM agent_github_settings WHERE agent_id = $1",
+        [agentId],
+      );
+      expect(rows[0]?.features).toEqual(stored);
+    });
+
+    test("`merge` on a row is checked and left out, also of the snapshot taken from it; a bad value still closes the session", async () => {
+      const { workspaceId, agentId, releaseId, sessionId } = await fixture({
+        source: "agent",
+      });
+      const gate = createPostgresGitHubGateStore(db);
+      await settingsRow(workspaceId, agentId, {
+        features: { ...KNOWN, merge: true },
+        updatedBy: PERSON,
+      });
+      const read = (await gate.context(sessionId))?.policy.settings;
+      expect(read === "invalid" ? read : read?.features).toEqual(KNOWN);
+      const taken = await db.transaction((tx) =>
+        captureGitHubPolicyStart(tx, releaseId),
+      );
+      expect(taken.settings.features).toEqual(KNOWN);
+      await settingsRow(workspaceId, agentId, {
+        features: { ...KNOWN, merge: "yes" },
+        revision: 2,
+        updatedBy: PERSON,
+      });
+      expect((await gate.context(sessionId))?.policy.settings).toBe("invalid");
+    });
+
+    test("a release pin with one reads as the pin without it on the gate", async () => {
+      const release = await fixture({
+        pins: {
+          github: {
+            ...PIN_OFF,
+            features: { ...PIN_OFF.features, later_switch: true },
+          },
+        },
+      });
+      const gate = createPostgresGitHubGateStore(db);
+      expect((await gate.context(release.sessionId))?.policy.settings).toEqual(
+        PIN_OFF,
+      );
+    });
+
+    test("an old pin with `actions` and one still names the tools it exposed then, for its checkpoints", async () => {
+      // `actions` runs under the switches as workflows and checks, so the
+      // pin as stored exposes other tools than the policy does.
+      const release = await fixture({
+        pins: {
+          github: {
+            ...PIN_OFF,
+            features: {
+              ...PIN_OFF.features,
+              actions: true,
+              later_switch: true,
+            },
+          },
+        },
+      });
+      const mcp = await sessionGitHubMcpOf(db, {
+        agentReleaseId: release.releaseId,
+        githubPolicySource: "release",
+      });
+      expect(mcp?.releaseId).toBe(release.releaseId);
+      expect(mcp?.pinTools).toBeDefined();
+      expect(mcp?.pinTools).not.toEqual(mcp?.tools);
     });
   });
 

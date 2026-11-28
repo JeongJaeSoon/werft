@@ -317,6 +317,39 @@ describe("i18n", () => {
     }
   });
 
+  test("MCP refusals keep the http exception and every url_invalid cause in every locale", () => {
+    const expected = {
+      ko: {
+        all: workspaceMcpKo,
+        http: "(http는 운영자가 사설 목록에 둔 호스트만 됩니다)",
+        insecure: "사설 목록",
+        invalid:
+          "URL이 올바르지 않습니다. URL 형식이어야 하고, 계정 정보(user@)나 #이 없어야 하며, https 주소는 IP 주소가 아닌 호스트 이름이어야 합니다.",
+      },
+      en: {
+        all: workspaceMcpEn,
+        http: "(http works only for a host the operator put on the private allowlist)",
+        insecure: "private allowlist",
+        invalid:
+          "That is not a valid URL. It must be a URL with no credentials (user@) and no #, and an https address must use a host name, not an IP address.",
+      },
+      ja: {
+        all: workspaceMcpJa,
+        http: "（http は運用者がプライベート許可リストに入れたホストに限られます）",
+        insecure: "プライベート許可リスト",
+        invalid:
+          "URL が正しくありません。URL の形式で、認証情報（user@）や # を含まず、https のアドレスは IP アドレスではなくホスト名である必要があります。",
+      },
+    };
+    for (const { all, http, insecure, invalid } of Object.values(expected)) {
+      const text = (reason: string) =>
+        all[`workspaceMcp.error.${reason}` as keyof typeof all];
+      expect(text("endpoint_not_allowed")).toContain(http);
+      expect(text("url_insecure")).toContain(insecure);
+      expect(text("url_invalid")).toBe(invalid);
+    }
+  });
+
   test("each language is named in its own words", () => {
     expect(LOCALE_NAMES).toEqual({ ko: "한국어", ja: "日本語", en: "English" });
   });

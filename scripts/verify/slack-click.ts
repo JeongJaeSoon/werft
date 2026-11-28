@@ -14,6 +14,9 @@ const ACTIONS: Record<string, string> = {
   // On the notice of a turn its worker's lost lease ended.
   continue: "turn.continue",
   "start-fresh": "turn.start_fresh",
+  // On a task's progress message (v1-b/C1).
+  "task-complete": "task.complete",
+  "task-cancel": "task.cancel",
 };
 
 type Message = {

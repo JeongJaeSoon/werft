@@ -3681,7 +3681,7 @@ export interface paths {
         get: operations["listSlackBindings"];
         /**
          * Set how the agent answers in one Slack channel or its DMs
-         * @description Replaces the binding of `channel_id` in the agent's Slack app install, or the install's one DM binding when `channel_id` is null, creating it the first time. The channel's kind is what Slack's `conversations.info` answers with the bot token; `channel_kind`, when sent, only has to agree on whether this is the DM row (400 when Slack names a DM or does not know the channel, 503 when Slack cannot be read). `mode` is `off` (the channel takes nothing; a mention there is refused) or `on` (in use; the agent's `mention_only` setting says whether it also answers a top-level message without a mention). `m1_judgments_per_hour` (1 to 60) is how many M1 judgments the channel may have in an hour; a missing one keeps the channel's, and a new channel starts at 12. `home: true` makes this channel the agent's home and clears the previous one; a DM is never home. A missing `ceiling` is the default: every Slack action, shown in full. The agent needs a live Slack app identity (409 SLACK_NOT_INSTALLED); a concurrent change to the same channel or home answers 409 REVISION_CONFLICT. The bot does not join the channel here. A binding that is `left` stays `left` when saved for its private channel (its `mode` and `ceiling` are edited, `home: true` answers 400); saved for a channel Slack now calls public, it is `ready` again. A channel under an emergency stop (`emergency_stop` set) stays `off` until a save sets `mode` `on` with a `reason` (400 without one); that save ends the stop on every binding of the channel it covered (each of the agent's installs in the Slack team), and its receipt keeps the reason and the stop it ended with those bindings. A binding saved while the stop holds starts stopped. Owners, admins and the agent's admins; API keys are refused. Writes a `set_surface_binding` receipt.
+         * @description Replaces the binding of `channel_id` in the agent's Slack app install, or the install's one DM binding when `channel_id` is null, creating it the first time. The channel's kind is what Slack's `conversations.info` answers with the bot token; `channel_kind`, when sent, only has to agree on whether this is the DM row (400 when Slack names a DM or does not know the channel, 503 when Slack cannot be read). `mode` is `off` (the channel takes nothing; a mention there is refused) or `on` (in use; the agent's `mention_only` setting says whether it also answers a top-level message without a mention). `m1_judgments_per_hour` (1 to 60) is how many M1 judgments the channel may have in an hour; a missing one keeps the channel's, and a new channel starts at 12. `report_mode` is how the channel's threads hear of their work: `notify_only` (one line when it starts, then only its end), `progress` (one progress message kept up to date, then its end) or `per_step` (a reply for every turn); a thread's own mode wins. `null` picks none, and the threads then hear by the agent's default: `progress` while the agent answers in conversations (`conversation_rollout` `on`), `per_step` otherwise. A missing one keeps the channel's; a new channel picks none. A DM's is kept but never read: a DM hears by the agent's default. A change applies at once to the open threads that pick none; a closed thread keeps the mode it closed under. `home: true` makes this channel the agent's home and clears the previous one; a DM is never home. A missing `ceiling` is the default: every Slack action, shown in full. The agent needs a live Slack app identity (409 SLACK_NOT_INSTALLED); a concurrent change to the same channel or home answers 409 REVISION_CONFLICT. The bot does not join the channel here. A binding that is `left` stays `left` when saved for its private channel (its `mode` and `ceiling` are edited, `home: true` answers 400); saved for a channel Slack now calls public, it is `ready` again. A channel under an emergency stop (`emergency_stop` set) stays `off` until a save sets `mode` `on` with a `reason` (400 without one); that save ends the stop on every binding of the channel it covered (each of the agent's installs in the Slack team), and its receipt keeps the reason and the stop it ended with those bindings. A binding saved while the stop holds starts stopped. Owners, admins and the agent's admins; API keys are refused. Writes a `set_surface_binding` receipt.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -3702,7 +3702,7 @@ export interface paths {
         };
         /**
          * M1's judgments in the agent's Slack channels
-         * @description What the conversation layer's first judge (M1) decided in the agent's Slack channels in the last 7 days (`since`), judged records only. Per channel (`channels`, most judgments first): how many judgments had a result (`judgments`), how many of them were `speak`, how many had each reason code (`reasons`, most first; `rate_limited` and `budget_refused` among them), the kind the channel's live binding records and that binding's `m1_judgments_per_hour` (null without one). Then the newest 50 judgments (`recent`) with their reason code and `url`, the link to the newest message the judgment read, made from its channel and `ts`: the message's text is read in Slack, never here. Private channels are in both like the rest, whether or not the caller is a member of them. Owners, admins and the agent's admins; API keys are refused. It changes nothing.
+         * @description What the conversation layer's first judge (M1) decided in the agent's Slack channels in the last 7 days (`since`), judged records only. Per channel (`channels`, most judgments first): how many judgments had a result (`judgments`), how many of them were `speak`, how many had each reason code (`reasons`, most first; `rate_limited` and `budget_refused` among them), the kind the channel's live binding records and that binding's `m1_judgments_per_hour` (null without one). Then the newest 50 judgments (`recent`); when `reason` names a reason code, `answer` names an answer, or both, the newest 50 of the judgments that have them (an unknown, empty or repeated `reason` or `answer` is 400; the counts above stay whole). Each carries its reason code, its `answer` (what became of a judgment that spoke once the agent's rollout is on, as recorded when its unasked turn ended or when none was made: `replied` and `no_reply` are the turn's decision, not proof that a Slack message was delivered; `no_decision`, `budget_refused`, `source_deleted`, `channel_stopped` or `not_started` say why there was none; null while no result is recorded, including a turn still running) and `url`, the link to the newest message the judgment read, made from its channel and `ts`: the message's text is read in Slack, never here. Private channels are in both like the rest, whether or not the caller is a member of them. Owners, admins and the agent's admins; API keys are refused. It changes nothing.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -6342,6 +6342,12 @@ export interface components {
             /** @default 30 */
             per_page: number;
         };
+        GetSlackJudgmentsQuery: {
+            /** @enum {string} */
+            reason?: "not_for_agent" | "human_conversation" | "already_handled" | "out_of_scope" | "needs_agent" | "unclear" | "invalid_target" | "budget_refused" | "concurrency_limited" | "rate_limited" | "input_too_large" | "no_active_release" | "model_unavailable" | "timed_out" | "unreachable" | "provider_error" | "malformed";
+            /** @enum {string} */
+            answer?: "replied" | "no_reply" | "no_decision" | "budget_refused" | "source_deleted" | "channel_stopped" | "not_started";
+        };
         PatchGitHubRepositoryRequest: {
             branch: string;
             version: number;
@@ -6609,6 +6615,7 @@ export interface components {
             /** @enum {string} */
             listen?: "free" | "mention" | "off";
             m1_judgments_per_hour?: number;
+            report_mode?: ("notify_only" | "progress" | "per_step") | null;
             /** @default false */
             home: boolean;
             ceiling?: {
@@ -11381,6 +11388,8 @@ export interface components {
                             checks: boolean;
                             issues: boolean;
                             review: boolean;
+                        } & {
+                            [key: string]: boolean;
                         };
                         actions_allow: {
                             workflow: string;
@@ -11464,6 +11473,8 @@ export interface components {
                             checks: boolean;
                             issues: boolean;
                             review: boolean;
+                        } & {
+                            [key: string]: boolean;
                         };
                         actions_allow: {
                             workflow: string;
@@ -11640,6 +11651,8 @@ export interface components {
                             checks: boolean;
                             issues: boolean;
                             review: boolean;
+                        } & {
+                            [key: string]: boolean;
                         };
                         actions_allow: {
                             workflow: string;
@@ -11723,6 +11736,8 @@ export interface components {
                             checks: boolean;
                             issues: boolean;
                             review: boolean;
+                        } & {
+                            [key: string]: boolean;
                         };
                         actions_allow: {
                             workflow: string;
@@ -11836,6 +11851,8 @@ export interface components {
                             checks: boolean;
                             issues: boolean;
                             review: boolean;
+                        } & {
+                            [key: string]: boolean;
                         };
                         actions_allow: {
                             workflow: string;
@@ -13195,6 +13212,7 @@ export interface components {
                 /** @enum {string} */
                 listen: "free" | "mention" | "off";
                 m1_judgments_per_hour: number;
+                report_mode: ("notify_only" | "progress" | "per_step") | null;
                 ceiling: {
                     actions: ("session.read" | "session.submit" | "session.control" | "session.approve")[];
                     /** @enum {string} */
@@ -13262,6 +13280,7 @@ export interface components {
                 decision: "speak" | "quiet";
                 /** @enum {string} */
                 reason: "not_for_agent" | "human_conversation" | "already_handled" | "out_of_scope" | "needs_agent" | "unclear" | "invalid_target" | "budget_refused" | "concurrency_limited" | "rate_limited" | "input_too_large" | "no_active_release" | "model_unavailable" | "timed_out" | "unreachable" | "provider_error" | "malformed";
+                answer: ("replied" | "no_reply" | "no_decision" | "budget_refused" | "source_deleted" | "channel_stopped" | "not_started") | null;
                 /** Format: date-time */
                 judged_at: string;
             }[];
@@ -13346,6 +13365,7 @@ export interface components {
                 /** @enum {string} */
                 listen: "free" | "mention" | "off";
                 m1_judgments_per_hour: number;
+                report_mode: ("notify_only" | "progress" | "per_step") | null;
                 ceiling: {
                     actions: ("session.read" | "session.submit" | "session.control" | "session.approve")[];
                     /** @enum {string} */
@@ -13401,6 +13421,7 @@ export interface components {
                 /** @enum {string} */
                 listen: "free" | "mention" | "off";
                 m1_judgments_per_hour: number;
+                report_mode: ("notify_only" | "progress" | "per_step") | null;
                 ceiling: {
                     actions: ("session.read" | "session.submit" | "session.control" | "session.approve")[];
                     /** @enum {string} */
@@ -13454,6 +13475,7 @@ export interface components {
                 /** @enum {string} */
                 listen: "free" | "mention" | "off";
                 m1_judgments_per_hour: number;
+                report_mode: ("notify_only" | "progress" | "per_step") | null;
                 ceiling: {
                     actions: ("session.read" | "session.submit" | "session.control" | "session.approve")[];
                     /** @enum {string} */
@@ -40080,7 +40102,10 @@ export interface operations {
     };
     getSlackJudgments: {
         parameters: {
-            query?: never;
+            query?: {
+                reason?: "not_for_agent" | "human_conversation" | "already_handled" | "out_of_scope" | "needs_agent" | "unclear" | "invalid_target" | "budget_refused" | "concurrency_limited" | "rate_limited" | "input_too_large" | "no_active_release" | "model_unavailable" | "timed_out" | "unreachable" | "provider_error" | "malformed";
+                answer?: "replied" | "no_reply" | "no_decision" | "budget_refused" | "source_deleted" | "channel_stopped" | "not_started";
+            };
             header?: never;
             path: {
                 /** @description The agent's id. */
@@ -40132,12 +40157,28 @@ export interface operations {
                      *           "outcome": "judged",
                      *           "decision": "speak",
                      *           "reason": "needs_agent",
+                     *           "answer": "replied",
                      *           "judged_at": "2026-11-24T00:00:05.000Z"
                      *         }
                      *       ]
                      *     }
                      */
                     "application/json": components["schemas"]["GetSlackJudgmentsResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
                 };
             };
             /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
@@ -40794,6 +40835,7 @@ export interface operations {
                      *         "mode": "off",
                      *         "listen": "free",
                      *         "m1_judgments_per_hour": 12,
+                     *         "report_mode": null,
                      *         "ceiling": {
                      *           "actions": [
                      *             "session.read",

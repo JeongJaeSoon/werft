@@ -8,6 +8,7 @@ import {
   SlackRateLimitedError,
   type SlackThreadApi,
 } from "./slack-config-api.ts";
+import { unescapeSlackText } from "./slack-entities.ts";
 import type { SlackInboxLogger } from "./slack-inbox.ts";
 
 // Not a post anyone wrote: a join, a topic change, and the like.
@@ -99,7 +100,7 @@ export function createSlackThreadReader(deps: {
         messages.push({
           ts: post.ts,
           author: { kind: "bot" },
-          text: post.text,
+          text: unescapeSlackText(post.text),
         });
         continue;
       }
@@ -119,7 +120,7 @@ export function createSlackThreadReader(deps: {
       messages.push({
         ts: post.ts,
         author: { kind: "person", slackUserId: post.user },
-        text: post.text,
+        text: unescapeSlackText(post.text),
       });
     }
     return { outcome: "read", messages, withheld };

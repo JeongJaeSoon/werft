@@ -39,6 +39,7 @@ import {
   GITLEAKS_GO,
   GITLEAKS_VERSION,
   GITLEAKS_X_TEXT,
+  GITLEAKS_XZ,
   REMOVED_AFTER_INSTALL,
 } from "../scripts/third-party-notices.ts";
 import {
@@ -353,6 +354,7 @@ describe("app Dockerfiles", () => {
     expect(source).toContain(`ARG GITLEAKS_BROTLI=${GITLEAKS_BROTLI}\n`);
     expect(source).toContain(`ARG GITLEAKS_COMPRESS=${GITLEAKS_COMPRESS}\n`);
     expect(source).toContain(`ARG GITLEAKS_X_TEXT=${GITLEAKS_X_TEXT}\n`);
+    expect(source).toContain(`ARG GITLEAKS_XZ=${GITLEAKS_XZ}\n`);
     expect(source).toContain(`ARG GITLEAKS_GO=${GITLEAKS_GO}\n`);
     expect(source).toMatch(
       /bun \/tmp\/fetch-pinned\.ts \\\n {2}https:\/\/github\.com\/gitleaks\/gitleaks\/archive\/refs\/tags\/v\$\{GITLEAKS_VERSION\}\.tar\.gz \\\n {2}[0-9a-f]{64} \\\n {2}\/tmp\/gitleaks-src\.tar\.gz \\\n {2}https:\/\/codeload\.github\.com\/gitleaks\/gitleaks\/tar\.gz\/refs\/tags\/v\$\{GITLEAKS_VERSION\}$/m,
@@ -379,7 +381,7 @@ describe("app Dockerfiles", () => {
     const stage = source.slice(start, end);
     expect(stage).not.toContain("apt-get");
     expect(stage).toContain(
-      'go get "github.com/andybalholm/brotli@v${GITLEAKS_BROTLI}" \\\n    "github.com/klauspost/compress@v${GITLEAKS_COMPRESS}" \\\n    "golang.org/x/text@v${GITLEAKS_X_TEXT}" \\\n',
+      'go get "github.com/andybalholm/brotli@v${GITLEAKS_BROTLI}" \\\n    "github.com/klauspost/compress@v${GITLEAKS_COMPRESS}" \\\n    "golang.org/x/text@v${GITLEAKS_X_TEXT}" \\\n    "github.com/ulikunitz/xz@v${GITLEAKS_XZ}" \\\n',
     );
     for (const file of ["go.mod", "go.sum"])
       expect(stage).toMatch(

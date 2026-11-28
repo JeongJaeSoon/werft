@@ -29,6 +29,7 @@ function recordOf(
     mode: "on",
     listen: "free",
     m1JudgmentsPerHour: 12,
+    reportMode: null,
     ceiling: { actions: [], disclosure: "full" },
     home: false,
     memoryWritePolicy: "deny",
@@ -51,10 +52,13 @@ function service(
   const asked: string[] = [];
   const actions: string[] = [];
   const stored: SurfaceChannelKind[] = [];
+  // Each save's report mode as the store got it: absent, null or a mode.
+  const reportModes: unknown[] = [];
   const store: SurfaceBindingStore = {
     emergencyStop: async () => ({ outcome: "not_found" }),
     async set(input) {
       stored.push(input.channelKind);
+      reportModes.push("reportMode" in input ? input.reportMode : "absent");
       return {
         outcome: "set",
         receiptId: "receipt-1",
@@ -69,6 +73,7 @@ function service(
           mode: input.mode,
           listen: input.listen ?? "free",
           m1JudgmentsPerHour: input.m1JudgmentsPerHour ?? 12,
+          reportMode: input.reportMode ?? null,
           ceiling: input.ceiling,
           home: input.home,
           memoryWritePolicy: "deny",
@@ -126,7 +131,7 @@ function service(
       sharingOf: async () => sharing,
     },
   });
-  return { bindings, asked, stored, actions };
+  return { bindings, asked, stored, actions, reportModes };
 }
 
 async function codeOf(work: Promise<unknown>) {
@@ -190,6 +195,25 @@ describe("a refused binding names why in details.reason_code", () => {
       code: "REVISION_CONFLICT",
       details: { reason_code: "not_pending" },
     });
+  });
+});
+
+describe("a Slack binding's report mode (94S-2194)", () => {
+  test("a save names the mode it picks, null picks none, and one without it leaves the store's", async () => {
+    const { bindings, reportModes } = service(async () => "public_channel");
+    const put = (report_mode?: "notify_only" | null) =>
+      bindings.putSlackBinding(caller, AGENT, {
+        channel_id: "C0OPS",
+        mode: "on",
+        home: false,
+        ...(report_mode === undefined ? {} : { report_mode }),
+      });
+    expect((await put("notify_only")).slack_binding.report_mode).toBe(
+      "notify_only",
+    );
+    expect((await put(null)).slack_binding.report_mode).toBeNull();
+    await put();
+    expect(reportModes).toEqual(["notify_only", null, "absent"]);
   });
 });
 
