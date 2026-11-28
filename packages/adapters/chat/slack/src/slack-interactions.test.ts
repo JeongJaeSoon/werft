@@ -470,7 +470,9 @@ function deps(): SlackInteractionDeps {
             row.sessionId === input.sessionId &&
             row.channelId === input.channelId &&
             row.slackTs === input.slackTs &&
-            (row.card === undefined || Bun.deepEquals(row.card, input.card)),
+            (row.card === undefined || Bun.deepEquals(row.card, input.card)) &&
+            // The store keeps "earlier" to the pressing agent's rows.
+            (row.link !== "earlier" || input.agentId === AGENT),
         )?.link ?? null,
       aiLabelFor: async (input) => {
         calls.push({ method: "aiLabel", args: [input] });

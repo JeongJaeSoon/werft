@@ -2592,7 +2592,7 @@ export function createPostgresSlackOutboxStore(
       return row ?? null;
     },
 
-    async postedCard({ sessionId, channelId, slackTs, card }) {
+    async postedCard({ sessionId, agentId, channelId, slackTs, card }) {
       if (!UUID.test(sessionId)) return null;
       const l = sessionLinks;
       // slackPromptDedupeKey and slackTurnDedupeKey, under the row's own link.
@@ -2629,13 +2629,18 @@ export function createPostgresSlackOutboxStore(
       if (row !== undefined) return row;
       // A card of the key in that channel that cannot be matched to the
       // message: one an earlier version posted without its link, or one
-      // whose post never came back with a ts (sending or uncertain).
+      // whose post never came back with a ts (sending or uncertain). Only
+      // the pressing agent's, and not under a revoked link.
+      if (!UUID.test(agentId)) return null;
       const [earlier] = await db
         .select({ id: t.id })
         .from(t)
+        .leftJoin(l, eq(l.id, t.sessionLinkId))
         .where(
           and(
             eq(t.sessionId, sessionId.toLowerCase()),
+            eq(t.agentId, agentId.toLowerCase()),
+            isNull(l.revokedAt),
             eq(t.kind, kind),
             eq(t.channelId, channelId),
             sql`starts_with(${t.dedupeKey}, ${prefix}::text)`,

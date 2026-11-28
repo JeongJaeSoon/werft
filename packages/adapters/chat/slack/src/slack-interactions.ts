@@ -488,6 +488,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       session.success && card !== null
         ? await deps.outbox.postedCard({
             sessionId: session.data,
+            agentId: pressed.agentId,
             channelId: pressed.channelId,
             slackTs: ts,
             card,

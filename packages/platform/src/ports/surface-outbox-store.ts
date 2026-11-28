@@ -943,6 +943,8 @@ export interface SurfaceOutboxStore {
    */
   postedCard(input: {
     sessionId: string;
+    /** The pressing app's agent: an "earlier" row is only ever its own. */
+    agentId: string;
     channelId: string;
     slackTs: string;
     card: SurfacePostedCardKey;

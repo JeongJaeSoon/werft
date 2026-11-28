@@ -59,6 +59,7 @@ async function link(
 async function card(input: {
   sessionId: string;
   linkId: string | null;
+  agentId?: string;
   channelId: string;
   kind?: "input_notice" | "failure_notice" | "notice";
   dedupeKey: string;
@@ -72,7 +73,7 @@ async function card(input: {
     [
       crypto.randomUUID(),
       WORKSPACE,
-      AGENT,
+      input.agentId ?? AGENT,
       crypto.randomUUID(),
       INSTALL,
       input.kind ?? "input_notice",
@@ -112,6 +113,7 @@ describe("the card a pressed message is", () => {
     const at = (channelId: string) =>
       store().postedCard({
         sessionId,
+        agentId: AGENT,
         channelId,
         slackTs: TS,
         card: { kind: "prompt", requestId: "toolu_1" },
@@ -164,6 +166,7 @@ describe("the card a pressed message is", () => {
     };
     const prompt = {
       sessionId,
+      agentId: AGENT,
       channelId: "C0ROOM",
       slackTs: TS,
       card: { kind: "prompt", requestId: "toolu_1" },
@@ -250,6 +253,7 @@ describe("the card a pressed message is", () => {
     const at = (slackTs: string, requestId: string) =>
       store().postedCard({
         sessionId,
+        agentId: AGENT,
         channelId: "C0ROOM",
         slackTs,
         card: { kind: "prompt", requestId },
@@ -287,10 +291,16 @@ describe("the card a pressed message is", () => {
     });
     const at = (
       card: Parameters<ReturnType<typeof store>["postedCard"]>[0]["card"],
-      over: { channelId?: string; slackTs?: string; sessionId?: string } = {},
+      over: {
+        channelId?: string;
+        slackTs?: string;
+        sessionId?: string;
+        agentId?: string;
+      } = {},
     ) =>
       store().postedCard({
         sessionId,
+        agentId: AGENT,
         channelId: "C0ROOM",
         slackTs: TS,
         card,
@@ -321,5 +331,32 @@ describe("the card a pressed message is", () => {
     expect(
       await at({ kind: "turn", turnId: 3 }, { channelId: "C0ELSE" }),
     ).toBeNull();
+    // Only the pressing agent's rows, and none under a revoked link.
+    expect(await at(prompt, { agentId: crypto.randomUUID() })).toBeNull();
+    expect(
+      await at(
+        { kind: "push", pushRequestId: push },
+        { agentId: "not-a-uuid" },
+      ),
+    ).toBeNull();
+    const revoked = await link(sessionId, { revoked: true });
+    await card({
+      sessionId,
+      linkId: revoked,
+      channelId: "C0ROOM",
+      dedupeKey: `prompt:${revoked}:toolu_7`,
+      slackTs: null,
+    });
+    expect(await at({ kind: "prompt", requestId: "toolu_7" })).toBeNull();
+    // Another agent's row in the same channel tells this one nothing.
+    await card({
+      sessionId,
+      linkId: l,
+      agentId: crypto.randomUUID(),
+      channelId: "C0ROOM",
+      dedupeKey: `prompt:${l}:toolu_8`,
+      slackTs: null,
+    });
+    expect(await at({ kind: "prompt", requestId: "toolu_8" })).toBeNull();
   });
 });
