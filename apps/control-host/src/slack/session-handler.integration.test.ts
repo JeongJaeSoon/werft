@@ -5360,6 +5360,32 @@ describe.each(ENGINES)(
       expect(await taskTurns(task)).toHaveLength(1);
     });
 
+    test("an unhanded end keeps a bind its thread was already posted to", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const task = await standaloneOf(fixture);
+      const turn = await dmToStandalone(fixture, task);
+      const store = schema.createPostgresConversationRoutes(db, key);
+      const route = await store.pending(turn.turn_id);
+      if (route === null) throw new Error("no pending route");
+      expect(await store.bindStandalone(route)).toBe("bound");
+      // The outbox reported the session's work there before the end.
+      await db.execute(sql`
+        INSERT INTO slack_outbox (id, workspace_id, agent_id, slack_app_id,
+          installation_id, kind, channel_id, thread_ts, session_id,
+          session_link_id, body, dedupe_key, progress_key)
+        SELECT gen_random_uuid(), l.workspace_id, l.agent_id, sa.id,
+          l.installation_id, 'progress', l.channel_id, l.thread_id,
+          l.session_id, l.id, '{"text":"running"}'::jsonb,
+          'dm3-posted:' || l.id, 'dm3-posted:' || l.id
+        FROM session_links l JOIN slack_apps sa ON sa.agent_id = l.agent_id
+        WHERE l.session_id = ${task}::uuid`);
+      expect(await store.settle(route, "failed", null, null)).toBe(true);
+      expect(await boundTo(task)).toEqual([["D0OWNER", "100.000100", null]]);
+      expect(await taskOfTurn(turn.turn_id)).toMatchObject({
+        effect: "failed",
+      });
+    });
+
     test("another person's standalone session is not handed to from a DM, and nothing is bound", async () => {
       const fixture = await agentInSlack("main", { rollout: "on" });
       const stranger = randomUUID();

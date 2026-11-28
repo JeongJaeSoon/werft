@@ -148,16 +148,31 @@ const ownBindOf = (route: PendingConversationRoute) => sql`
 /**
  * Takes back what a DM hand-off bound for a turn that ends unhanded: the
  * link and, with no link left, the parent. Kept once any input went in by
- * that link, this turn's or another message's.
+ * that link, this turn's or another message's, or once anything was
+ * posted for it.
  */
 async function dropOwnBind(tx: Database, route: PendingConversationRoute) {
+  // The session first, as an input's write takes it: one writing now ends,
+  // its status rows included, before the link is read.
+  await tx.execute(sql`
+    SELECT 1 FROM sessions WHERE id = ${route.sessionId}::uuid FOR UPDATE`);
+  // Then the link, once an outbox row being written for it is in.
+  const [link] = rowsOf<{ id: string }>(
+    await tx.execute(sql`
+      SELECT sl.id FROM session_links sl WHERE ${ownBindOf(route)}
+      FOR UPDATE OF sl`),
+  );
+  if (link === undefined) return;
   const dropped = rowsOf(
     await tx.execute(sql`
       DELETE FROM session_links sl
-      WHERE ${ownBindOf(route)}
+      WHERE sl.id = ${link.id}::uuid
         AND NOT ${handedInput(route)}
         AND NOT EXISTS (SELECT 1 FROM turns t
           WHERE t.session_id = sl.session_id AND t.created_at >= sl.created_at)
+        -- Posted to already (its work's report): the thread is the session's.
+        AND NOT EXISTS (SELECT 1 FROM slack_outbox o
+          WHERE o.session_link_id = sl.id)
       RETURNING sl.id`),
   );
   if (dropped.length === 0) return;
@@ -308,7 +323,11 @@ export function createPostgresConversationRoutes(
           WHERE s.id = ${route.sessionId}::uuid
             AND ${standaloneOf(route, person)}`),
       );
-      return row === undefined ? null : { kind: "standalone" };
+      if (row !== undefined) return { kind: "standalone" };
+      // Bound since the first read, by a run beside this one: a bind is the
+      // one way from standalone to linked, and it commits both at once.
+      const bound = await openTaskThread(db, route);
+      return bound === null ? null : { kind: "linked", ...bound };
     },
 
     async bindStandalone(route) {
