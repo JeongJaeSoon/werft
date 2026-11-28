@@ -18,14 +18,16 @@
  *   4. Run biome on what it rewrote (import order and line width follow the path).
  *      The contracts index keeps its order: see keptOrder.
  *   5. Regenerate the tables of docs/architecture/modules.md.
- *   6. Fail if a relative import still names a file that does not exist.
+ *   6. Fail if a relative import still names a file that does not exist, or
+ *      names one file from where it is and another from where it was.
  *
  * Running it again changes nothing: a rule matches an old path only, never
  * the place it moves to. On a branch cut before the move, merge main first
  * (git follows the renames), then run it: files the branch added under an old
  * path move too, and imports the branch wrote against old paths are repaired.
  * It stops before changing anything when a file would land on an existing
- * one, or when a file sits directly under an extensions/ folder with no rule
+ * one, when two files would land on one name, or when a file sits directly
+ * under an extensions/ folder with no rule
  * (pick skills/, bundles/, mcp/ or builtin/ and add it to "rules").
  *
  * Not touched: CHANGELOG.md, changelog.d/, the migrations, lock files, the
@@ -236,6 +238,7 @@ const before = [
   .sort();
 
 const moves = new Map<string, string>();
+const landing = new Map<string, string[]>();
 const problems: string[] = [];
 for (const path of before) {
   const to = mapPath(path);
@@ -249,6 +252,7 @@ for (const path of before) {
         `${path}: ${to} already exists; merge the two by hand, then run again`,
       );
     moves.set(path, to);
+    landing.set(to, [...(landing.get(to) ?? []), path]);
   }
   for (const layer of [platform, db, routes]) {
     const folder = `${layer}extensions/`;
@@ -263,6 +267,12 @@ for (const path of before) {
       );
   }
 }
+// Several rules gather files into one folder, so two old files can claim one name.
+for (const [to, from] of landing)
+  if (from.length > 1)
+    problems.push(
+      `${from.join(" and ")}: both move to ${to}; merge them by hand, then run again`,
+    );
 if (problems.length > 0) {
   console.error(problems.join("\n"));
   process.exit(2);
@@ -304,6 +314,9 @@ function existsAfter(path: string): boolean {
 
 type Edit = { start: number; end: number; text: string };
 
+/** Imports this run left alone because the path names one file here and another from the file's old place. */
+const twoReadings: string[] = [];
+
 function relativeFrom(file: string, target: string, keepSlash: boolean) {
   let specifier = posix.relative(dirname(file), target) || ".";
   if (!specifier.startsWith(".")) specifier = `./${specifier}`;
@@ -332,15 +345,21 @@ function repairedRelative(
     if (!isSpecifier && !existsAfter(target)) return undefined;
     return relativeFrom(file, target, keepSlash) + suffix;
   }
-  if (existsAfter(target)) return undefined;
-  // The file is where a rule moves files to, yet names something that is
-  // not there: text written for the old place and merged in after the move.
-  for (const old of oldPathsOf(file)) {
-    const candidate = mapPath(resolved(old));
-    if (existsAfter(candidate))
-      return relativeFrom(file, candidate, keepSlash) + suffix;
+  // The file is where a rule moves files to. Text written for its old place
+  // and merged in after the move names something else from here: nothing, or
+  // by chance another file ("../index.ts" one folder deeper).
+  const fromOldPlace = [
+    ...new Set(oldPathsOf(file).map((old) => mapPath(resolved(old)))),
+  ].filter((candidate) => candidate !== target && existsAfter(candidate));
+  const [only] = fromOldPlace;
+  if (existsAfter(target) || fromOldPlace.length > 1) {
+    if (only && isSpecifier)
+      twoReadings.push(
+        `${file}: "${text}" is ${existsAfter(target) ? target : "nothing"} from here and ${fromOldPlace.join(" or ")} from where the file was`,
+      );
+    return undefined;
   }
-  return undefined;
+  return only ? relativeFrom(file, only, keepSlash) + suffix : undefined;
 }
 
 function isModuleSpecifier(node: ts.Node): boolean {
@@ -386,7 +405,9 @@ function scriptEdits(file: string, text: string): Edit[] {
         file.startsWith(apiRoot) &&
         node.text.startsWith("routes/")
       )
-        next = mapPath(apiRoot + node.text).slice(apiRoot.length);
+        next = existsAfter(mapPath(apiRoot + node.text))
+          ? mapPath(apiRoot + node.text).slice(apiRoot.length)
+          : undefined;
       if (next !== undefined && next !== node.text)
         edits.push({
           start: node.getStart(source) + 1,
@@ -451,19 +472,38 @@ function mapToken(token: string): string {
   return mapPath(slash ? bare.slice(0, -1) : bare) + slash + dots;
 }
 
+/** Whether the match at `index` is part of an address ("https://host/musterrolle/x"): not a path of this repository. */
+function inAddress(text: string, index: number): boolean {
+  const word = /[^\s"'`()<>[\]]*$/.exec(text.slice(0, index))?.[0] ?? "";
+  return word.includes("://");
+}
+
+/** `replace`, leaving a match inside an address as it is. */
+function replacePaths(
+  text: string,
+  pattern: RegExp,
+  mapped: (match: string, ...groups: (string | undefined)[]) => string,
+): string {
+  return text.replace(pattern, (match: string, ...rest: unknown[]) => {
+    const index = rest.find((value) => typeof value === "number") as number;
+    const groups = rest.slice(0, rest.indexOf(index)) as (string | undefined)[];
+    return inAddress(text, index) ? match : mapped(match, ...groups);
+  });
+}
+
 function rewriteText(file: string, text: string): string {
-  let result = text
-    .replace(rootedPath, mapToken)
-    .replace(codeNamedSegment, (_all, folder: string, rest = "") => {
-      // db and the routes keep the remote MCP files in extensions/mcp.
-      if (folder === "musterrolle" && /^workspace-mcp[^/]*$/.test(rest))
-        return `extensions/mcp/${rest}`;
-      return `${folder === "kollegium" ? "agents" : "access-control"}/${rest}`;
-    });
+  let result = replacePaths(text, rootedPath, mapToken);
+  result = replacePaths(result, codeNamedSegment, (_all, folder, rest = "") => {
+    // db and the routes keep the remote MCP files in extensions/mcp.
+    if (folder === "musterrolle" && /^workspace-mcp[^/]*$/.test(rest))
+      return `extensions/mcp/${rest}`;
+    return `${folder === "kollegium" ? "agents" : "access-control"}/${rest}`;
+  });
   if (file.startsWith(verifyDocs))
-    result = result.replace(
+    result = replacePaths(
+      result,
       /(?<![\w-])musterrolle\.md\b/g,
-      "access-control.md",
+      () => "access-control.md",
     );
   return result;
 }
@@ -740,7 +780,7 @@ function packageTable(current: string): string {
 const mapText = [
   "# 모듈 지도",
   "",
-  "코드의 폴더, 패키지, 식별자에는 기능 이름만 씁니다. 코드명은 도메인 폴더를 묶는 이름이고, 저장소에서는 이 문서에만 나옵니다. 바깥(API, SDK, 화면, 문서 사이트, Slack, 모델이 읽는 글)에는 Werft만 나옵니다.",
+  "코드의 폴더, 패키지, 파일 이름에는 기능 이름만 씁니다. 코드명은 도메인 폴더를 묶는 이름이고, 저장소에서는 이 문서가 정합니다. 바깥(API, SDK, 화면, 문서 사이트, Slack, 모델이 읽는 글)에는 Werft만 나옵니다. 옛 프로젝트를 출처로 적은 주석, 변경 기록, migration, 시험 자료에는 옛 이름이 남아 있습니다.",
   "",
   `${code("tests/module-map.test.ts")}가 아래 두 표를 실제 패키지와 폴더에 맞춥니다. 패키지나 도메인 폴더를 더하거나 옮기는 PR은 같은 PR에서 이 표를 고칩니다.`,
   "",
@@ -790,7 +830,7 @@ const mapText = [
   `| ${code("mcp")} | workspace 원격 MCP 서버와 에이전트 지정 |`,
   `| ${code("builtin")} | 내장 werft MCP 서버와 그 안내 |`,
   "",
-  `이름이 ${["skill-", "workspace-mcp", "agent-workspace-mcp", "agent-mcp", "werft-mcp"].map(code).join(", ")}로 시작하는 파일은 세 층에서 ${code("extensions")} 아래에만 둡니다. 실행 중 MCP 호출을 중계하는 파일(이름이 ${code("mcp-egress")}로 끝남)은 Kiel 몫이라 예외이고, platform에서는 ${code("workers/mcp-egress")}에 모읍니다.`,
+  `이름이 ${["skill-", "skills.", "extension-bundle", "workspace-mcp", "agent-workspace-mcp", "agent-mcp", "werft-mcp"].map(code).join(", ")}로 시작하는 파일은 세 층에서 ${code("extensions")} 아래, 그 이름의 폴더에만 둡니다. 실행 중 MCP 호출을 중계하는 파일(이름이 ${code("mcp-egress")}로 끝남)은 Kiel 몫이라 예외이고, platform에서는 ${code("workers/mcp-egress")}에 모읍니다.`,
   "",
 ].join("\n");
 
@@ -849,6 +889,12 @@ if (checkOnly && (moves.size > 0 || rewritten.length > 0 || mapChanged)) {
   for (const [from, to] of moves) console.log(`  mv ${from} -> ${to}`);
   for (const file of rewritten) console.log(`  rewrite ${file}`);
   process.exit(1);
+}
+if (twoReadings.length > 0) {
+  console.error(
+    `${twoReadings.length} import(s) read two ways and were left as written; check each by hand:\n${twoReadings.join("\n")}`,
+  );
+  process.exitCode = 1;
 }
 if (dangling.length > 0) {
   console.error(

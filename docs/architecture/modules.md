@@ -1,6 +1,6 @@
 # 모듈 지도
 
-코드의 폴더, 패키지, 식별자에는 기능 이름만 씁니다. 코드명은 도메인 폴더를 묶는 이름이고, 저장소에서는 이 문서에만 나옵니다. 바깥(API, SDK, 화면, 문서 사이트, Slack, 모델이 읽는 글)에는 Werft만 나옵니다.
+코드의 폴더, 패키지, 파일 이름에는 기능 이름만 씁니다. 코드명은 도메인 폴더를 묶는 이름이고, 저장소에서는 이 문서가 정합니다. 바깥(API, SDK, 화면, 문서 사이트, Slack, 모델이 읽는 글)에는 Werft만 나옵니다. 옛 프로젝트를 출처로 적은 주석, 변경 기록, migration, 시험 자료에는 옛 이름이 남아 있습니다.
 
 `tests/module-map.test.ts`가 아래 두 표를 실제 패키지와 폴더에 맞춥니다. 패키지나 도메인 폴더를 더하거나 옮기는 PR은 같은 PR에서 이 표를 고칩니다.
 
@@ -102,4 +102,4 @@
 | `mcp` | workspace 원격 MCP 서버와 에이전트 지정 |
 | `builtin` | 내장 werft MCP 서버와 그 안내 |
 
-이름이 `skill-`, `workspace-mcp`, `agent-workspace-mcp`, `agent-mcp`, `werft-mcp`로 시작하는 파일은 세 층에서 `extensions` 아래에만 둡니다. 실행 중 MCP 호출을 중계하는 파일(이름이 `mcp-egress`로 끝남)은 Kiel 몫이라 예외이고, platform에서는 `workers/mcp-egress`에 모읍니다.
+이름이 `skill-`, `skills.`, `extension-bundle`, `workspace-mcp`, `agent-workspace-mcp`, `agent-mcp`, `werft-mcp`로 시작하는 파일은 세 층에서 `extensions` 아래, 그 이름의 폴더에만 둡니다. 실행 중 MCP 호출을 중계하는 파일(이름이 `mcp-egress`로 끝남)은 Kiel 몫이라 예외이고, platform에서는 `workers/mcp-egress`에 모읍니다.
