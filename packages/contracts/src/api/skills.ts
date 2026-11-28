@@ -337,6 +337,12 @@ export const skillGitPathSchema = z
     },
   );
 
+export const skillGitRefSchema = z
+  .string()
+  .min(1)
+  .max(255)
+  .regex(/^(?!\/)(?!.*\/$)(?!.*\.\.)[^\s~^:?*[\\\0]+$/);
+
 export const registerGitHubSkillRequestSchema = z
   .object({
     name: skillNameSchema.meta({
@@ -351,15 +357,10 @@ export const registerGitHubSkillRequestSchema = z
       description:
         "The skill directory, holding `SKILL.md`; empty for the repository root.",
     }),
-    ref: z
-      .string()
-      .min(1)
-      .max(255)
-      .regex(/^(?!\/)(?!.*\/$)(?!.*\.\.)[^\s~^:?*[\\\0]+$/)
-      .meta({
-        description:
-          "A branch, a tag or a 40-character commit. A commit never moves, so it is never synced.",
-      }),
+    ref: skillGitRefSchema.meta({
+      description:
+        "A branch, a tag or a 40-character commit. A commit never moves, so it is never synced.",
+    }),
     connection_id: z.uuid().optional().meta({
       description:
         "The author App connection that reads it; may be left out while the workspace has one.",

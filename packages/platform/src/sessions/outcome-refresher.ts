@@ -26,6 +26,7 @@ import type {
   OutcomeCheck,
   SessionOutcomeStore,
 } from "./ports/session-outcomes.ts";
+import type { TaskCloses } from "./ports/task-closes.ts";
 
 export const OUTCOME_REFRESH_INTERVAL_MS = 60_000;
 /** A claimed row a dead replica held is claimed again after this. */
@@ -34,6 +35,8 @@ export const OUTCOME_LEASE_MS = 120_000;
 export const OUTCOME_CLAIM_MAX = 50;
 /** Rows of earlier images' pull requests given an outcome per pass. */
 const FILL_PER_PASS = 500;
+/** Tasks closed on their settled pull requests per pass (v1-b/C1). */
+const TASK_CLOSES_PER_PASS = 100;
 /** Below this share of the limit left, the unit pauses until its reset. */
 const PAUSE_BELOW_SHARE = 0.2;
 const PAUSE_WITHOUT_RESET_MS = 60_000;
@@ -59,6 +62,8 @@ function rateLimited(error: GitHubCallError): boolean {
  */
 export function createOutcomeRefresher(deps: {
   store: SessionOutcomeStore;
+  /** Closes the tasks whose pull requests this and earlier passes saw settle. */
+  tasks?: Pick<TaskCloses, "closeOnPullRequests">;
   gate: GitHubGate;
   catalog: SessionCatalog;
   connections: GitHubConnections;
@@ -335,6 +340,20 @@ export function createOutcomeRefresher(deps: {
             paused_until: until.toISOString(),
           });
         }
+      }
+    }
+    if (deps.tasks !== undefined) {
+      // Its own failure leaves the reads above standing; the next pass tries again.
+      try {
+        const closed =
+          await deps.tasks.closeOnPullRequests(TASK_CLOSES_PER_PASS);
+        if (closed > 0) {
+          logger.info("Tasks closed on their pull requests", { closed });
+        }
+      } catch (error) {
+        logger.warn("Closing tasks on their pull requests failed", {
+          error: error instanceof Error ? error.name : String(error),
+        });
       }
     }
     return reads;

@@ -359,18 +359,85 @@ describe("the unasked turn of a judgment that spoke (v1-b/U1)", () => {
     expect((await issue(at, judgmentId).issued).outcome).toBe("issued");
   });
 
-  for (const grade of ["m1", "m1_to_task"] as const) {
-    test(`a bound session's reply that spoke (${grade}) makes none: the session answers it`, async () => {
-      const at = await place();
-      const judgmentId = await spoke(at, "100.000002", ["100.000002"], grade);
-      expect((await issue(at, judgmentId).issued).outcome).toBe("duplicate");
-      expect((await turnsOf()).rows).toEqual([]);
-      expect(await judgmentOf(judgmentId)).toEqual({
-        turn_id: null,
-        answer: null,
-      });
+  test("a reply of work going on that spoke (m1_to_task) makes none: the work answers it", async () => {
+    const at = await place();
+    const judgmentId = await spoke(
+      at,
+      "100.000002",
+      ["100.000002"],
+      "m1_to_task",
+    );
+    expect((await issue(at, judgmentId).issued).outcome).toBe("duplicate");
+    expect((await turnsOf()).rows).toEqual([]);
+    expect(await judgmentOf(judgmentId)).toEqual({
+      turn_id: null,
+      answer: null,
     });
-  }
+  });
+
+  /** The reply as the judgment buffer holds it, no turn's yet. */
+  const heldReply = (ts: string) =>
+    client.query(
+      `INSERT INTO conversation_inputs (id, workspace_id, agent_id, topic_id,
+        seq, slack_team_id, slack_channel_id, slack_ts, requester_kind,
+        requester_id, body, buffer_expires_at)
+       VALUES ($1, $2, $3, $4, 1, $5, $6, $7, 'slack_user', 'U0POSTER',
+        'and the next step', now() + interval '10 minutes')`,
+      [randomUUID(), WORKSPACE, AGENT, randomUUID(), TEAM, CHANNEL, ts],
+    );
+
+  test("a closed work's held reply that spoke (m1) makes its one unasked turn", async () => {
+    const at = await place();
+    await heldReply("100.000002");
+    const judgmentId = await spoke(at, "100.000002", ["100.000002"], "m1");
+    // The binding hears mentions alone: a bound thread's reply speaks still.
+    await client.query(
+      "UPDATE surface_bindings SET listen = 'mention' WHERE id = $1",
+      [at.bindingId],
+    );
+    const { turnId, issued } = issue(at, judgmentId, {
+      sources: ["100.000002"],
+    });
+    expect((await issued).outcome).toBe("issued");
+    expect((await turnsOf()).rows).toEqual([
+      expect.objectContaining({ id: turnId, requester_kind: "agent" }),
+    ]);
+  });
+
+  test("a closed work's reply its session took (m1) makes none: one post, one answer", async () => {
+    const at = await place();
+    const session = await newPartitionedSession(db, "unasked-taken");
+    await client.query(
+      "UPDATE sessions SET status = 'idle', workspace_id = $2 WHERE id = $1",
+      [session.sessionId, WORKSPACE],
+    );
+    await client.query(
+      "UPDATE turns SET requester_kind = 'user', requester_id = $2 WHERE session_id = $1",
+      [session.sessionId, randomUUID()],
+    );
+    await db.transaction((tx) =>
+      takeSlackTurnInput(
+        tx,
+        { workspaceId: WORKSPACE, agentId: AGENT, teamId: TEAM },
+        {
+          topicId: at.topicId,
+          channelId: CHANNEL,
+          ts: "100.000002",
+          turn: { sessionId: session.sessionId, sequence: 1 },
+          engagement: "bound",
+        },
+      ),
+    );
+    const judgmentId = await spoke(at, "100.000002", ["100.000002"], "m1");
+    expect(
+      (await issue(at, judgmentId, { sources: ["100.000002"] }).issued).outcome,
+    ).toBe("duplicate");
+    expect((await turnsOf()).rows).toEqual([]);
+    expect(await judgmentOf(judgmentId)).toEqual({
+      turn_id: null,
+      answer: null,
+    });
+  });
 
   for (const [name, change] of [
     [
@@ -721,11 +788,76 @@ describe("conversation_judgments' unasked columns (migration)", () => {
 });
 
 describe("a closed work's thread reply that spoke (v1-b/U1)", () => {
+  test("a reply held again by a second event of it is answered once", async () => {
+    const at = await place();
+    const first = await spoke(at, "100.000007", ["100.000007"], "m1");
+    expect(
+      (await issue(at, first, { sources: ["100.000007"] }).issued).outcome,
+    ).toBe("issued");
+    const again = await spoke(at, "100.000007", ["100.000007"], "m1");
+    expect(
+      (await issue(at, again, { sources: ["100.000007"] }).issued).outcome,
+    ).toBe("duplicate");
+    expect(await judgmentOf(again)).toEqual({ turn_id: null, answer: null });
+  });
+
+  test("a post a batch holds stays the batch's when a session's turn takes it", async () => {
+    const at = await place();
+    const session = await newPartitionedSession(db, "unasked-batched");
+    await client.query(
+      "UPDATE sessions SET status = 'idle', workspace_id = $2 WHERE id = $1",
+      [session.sessionId, WORKSPACE],
+    );
+    await client.query(
+      "UPDATE turns SET requester_kind = 'user', requester_id = $2 WHERE session_id = $1",
+      [session.sessionId, randomUUID()],
+    );
+    await db.transaction((tx) =>
+      holdBufferedInput(
+        tx,
+        { workspaceId: WORKSPACE, agentId: AGENT, teamId: TEAM },
+        {
+          topicId: at.topicId,
+          channelId: CHANNEL,
+          ts: "100.000006",
+          buffered: { body: "where is the deploy doc?", slackUserId: "U0P" },
+          // A work's judgment beside it, as a shadow append can write.
+          judgment: {
+            grade: "m1_to_task",
+            rule: { decision: "reply", reason: "default_reply" },
+          },
+        },
+        JUDGMENT_BUFFER_LIMIT_PER_CHANNEL,
+      ),
+    );
+    await client.query(
+      "UPDATE conversation_inputs SET judgment_batch_id = $1 WHERE slack_ts = '100.000006'",
+      [randomUUID()],
+    );
+    await db.transaction((tx) =>
+      takeSlackTurnInput(
+        tx,
+        { workspaceId: WORKSPACE, agentId: AGENT, teamId: TEAM },
+        {
+          topicId: at.topicId,
+          channelId: CHANNEL,
+          ts: "100.000006",
+          turn: { sessionId: session.sessionId, sequence: 1 },
+          engagement: "bound",
+        },
+      ),
+    );
+    const { rows } = await client.query(
+      "SELECT turn_id, judgment_batch_id IS NOT NULL AS batched, buffer_expires_at IS NOT NULL AS held FROM conversation_inputs WHERE slack_ts = '100.000006'",
+    );
+    expect(rows).toEqual([{ turn_id: null, batched: true, held: true }]);
+  });
+
   test("the session takes it as its one turn; M1's speak makes no unasked turn", async () => {
     const at = await place();
     const session = await newPartitionedSession(db, "unasked-closed");
     await client.query(
-      "UPDATE sessions SET status = 'idle', workspace_id = $2 WHERE id = $1",
+      "UPDATE sessions SET status = 'idle', admission_state = 'closed', workspace_id = $2 WHERE id = $1",
       [session.sessionId, WORKSPACE],
     );
     await client.query(

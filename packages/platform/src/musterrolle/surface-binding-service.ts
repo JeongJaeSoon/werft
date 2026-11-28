@@ -63,6 +63,7 @@ export function surfaceBindingView(
     mode: record.mode,
     listen: record.listen,
     m1_judgments_per_hour: record.m1JudgmentsPerHour,
+    report_mode: record.reportMode,
     ceiling: record.ceiling,
     home: record.home,
     memory_write_policy: record.memoryWritePolicy,
@@ -240,6 +241,9 @@ export function createSurfaceBindingService(deps: {
         ...(request.m1_judgments_per_hour === undefined
           ? {}
           : { m1JudgmentsPerHour: request.m1_judgments_per_hour }),
+        ...(request.report_mode === undefined
+          ? {}
+          : { reportMode: request.report_mode }),
         home: request.home,
         ceiling: request.ceiling ?? DEFAULT_SURFACE_CEILING,
         managerRoles: MANAGERS,

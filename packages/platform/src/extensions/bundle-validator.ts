@@ -566,6 +566,40 @@ function canonicalSkillFile(
   path: string,
   upload: boolean,
 ): Uint8Array | null {
+  const parsed = parseSkillFile(bytes, directory, report, path, upload);
+  if (parsed === null || !parsed.ok) return null;
+  const { values, body } = parsed;
+
+  const head = ["---"];
+  for (const key of SKILL_KEYS) {
+    const value = values.get(key);
+    if (value instanceof Map) {
+      head.push(`${key}:`);
+      for (const [entry, text] of value) {
+        head.push(`  ${entry}: ${quoted(text)}`);
+      }
+    } else if (value !== undefined) {
+      head.push(`${key}: ${quoted(value)}`);
+    }
+  }
+  head.push("---");
+  return encoder.encode(`${[...head, ...body].join("\n")}`);
+}
+
+type SkillFileValues = Map<string, string | boolean | Map<string, string>>;
+
+/**
+ * SKILL.md's frontmatter and body, every problem reported. Null when there is
+ * no frontmatter to read; `ok` is false when a problem was reported.
+ * `directory` null: the name is held to the name rule alone.
+ */
+function parseSkillFile(
+  bytes: Uint8Array,
+  directory: string | null,
+  report: Report,
+  path: string,
+  upload: boolean,
+): { ok: boolean; values: SkillFileValues; body: string[] } | null {
   const text = decodeText(bytes);
   if (text === null) {
     report(path, "bad_frontmatter", "SKILL.md is not valid UTF-8.");
@@ -586,7 +620,7 @@ function canonicalSkillFile(
     return null;
   }
 
-  const values = new Map<string, string | boolean | Map<string, string>>();
+  const values: SkillFileValues = new Map();
   let ok = true;
   const front = lines.slice(1, end);
   for (let at = 0; at < front.length; at++) {
@@ -649,11 +683,17 @@ function canonicalSkillFile(
 
   const name = values.get("name");
   const description = values.get("description");
-  if (name !== directory) {
+  if (
+    directory === null
+      ? typeof name !== "string" || !NAME.test(name)
+      : name !== directory
+  ) {
     report(
       path,
       "bad_frontmatter",
-      `Frontmatter name must equal the directory name "${directory}".`,
+      directory === null
+        ? "Frontmatter needs a name of lowercase letters, digits and dashes, 1-64 characters."
+        : `Frontmatter name must equal the directory name "${directory}".`,
     );
     ok = false;
   }
@@ -711,22 +751,77 @@ function canonicalSkillFile(
     );
     ok = false;
   }
-  if (!ok) return null;
+  return { ok, values, body };
+}
 
-  const head = ["---"];
-  for (const key of SKILL_KEYS) {
-    const value = values.get(key);
-    if (value instanceof Map) {
-      head.push(`${key}:`);
-      for (const [entry, text] of value) {
-        head.push(`  ${entry}: ${quoted(text)}`);
-      }
-    } else if (value !== undefined) {
-      head.push(`${key}: ${quoted(value)}`);
+/**
+ * What a listing shows of one SKILL.md, read by the parser an upload meets:
+ * a directory listed without issues is not refused for its frontmatter when
+ * it is registered under that name. The name is the frontmatter's own.
+ */
+export function readSkillFile(bytes: Uint8Array): {
+  name: string | null;
+  description: string | null;
+  license: string | null;
+  issues: BundleIssue[];
+} {
+  const issues: BundleIssue[] = [];
+  const parsed = parseSkillFile(
+    bytes,
+    null,
+    (path, code, message) => issues.push({ path, code, message }),
+    "SKILL.md",
+    true,
+  );
+  const text = (key: string) => {
+    const value = parsed?.values.get(key);
+    return typeof value === "string" && value !== "" ? value : null;
+  };
+  const name = text("name");
+  return {
+    name: name !== null && NAME.test(name) ? name : null,
+    description: text("description"),
+    license: text("license"),
+    issues,
+  };
+}
+
+/**
+ * What the paths of a skill directory alone refuse, before any content is
+ * read: the path rules an upload of those files meets. `paths` are relative
+ * to the skill directory.
+ */
+export function skillPathIssues(paths: readonly string[]): BundleIssue[] {
+  const issues: BundleIssue[] = [];
+  const seen = new Map<string, string>();
+  for (const rest of paths) {
+    const full = `skills/s/${rest}`;
+    const unsafe = unsafePathReason(rest);
+    const policy = engineManifest(full) ?? pathPolicy(full);
+    const earlier = seen.get(fold(rest));
+    seen.set(fold(rest), earlier ?? rest);
+    if (unsafe !== null) {
+      issues.push({ path: rest, code: "unsafe_path", message: unsafe });
+    } else if (policy !== null) {
+      issues.push({ path: rest, ...policy });
+    } else if (earlier !== undefined) {
+      issues.push({
+        path: rest,
+        code: "path_collision",
+        message: `Collides with ${earlier} on a case-insensitive file system.`,
+      });
+    } else if (
+      rest !== "SKILL.md" &&
+      fold(rest.slice(rest.lastIndexOf("/") + 1)) === "skill.md"
+    ) {
+      issues.push({
+        path: rest,
+        code: "multiple_skills",
+        message: "A skill is one directory; this SKILL.md is another skill.",
+      });
     }
   }
-  head.push("---");
-  return encoder.encode(`${[...head, ...body].join("\n")}`);
+  return issues;
 }
 
 /**

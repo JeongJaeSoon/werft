@@ -27,6 +27,7 @@ symlinkSync(join(root, "outside"), join(workspace, "link"));
 symlinkSync(join(root, "missing"), join(workspace, "dangling"));
 // A link inside the workspace whose target is a kept place.
 symlinkSync(join(workspace, ".claude"), join(workspace, "settings-link"));
+symlinkSync(join(workspace, ".claude"), join(workspace, "--settings-link"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 const at = (shell: string | undefined = workspace) => ({
@@ -446,6 +447,68 @@ const WIDE: [string, string, string | null][] = [
     "git status && cat notes/../../x",
     "outside",
   ],
+  // gh sends the file it is given as a body, so a secret there goes to a
+  // person in this reading as well; other files and stdin stay answered.
+  [
+    "gh given a secret as a body",
+    "gh pr create --title x --body-file .env",
+    "goes to a person",
+  ],
+  [
+    "gh given a secret glued",
+    "gh pr create --title x --body-file=.env",
+    "goes to a person",
+  ],
+  [
+    "gh given engine settings as a body",
+    "gh issue comment 1 -F .claude/settings.json",
+    "goes to a person",
+  ],
+  [
+    "gh given a secret in a cluster",
+    "gh pr create --title x -dF.env",
+    "goes to a person",
+  ],
+  [
+    "gh given a secret after =",
+    "gh pr create -F=.claude/settings.json",
+    "goes to a person",
+  ],
+  [
+    "gh given a link to engine settings",
+    "gh pr create --body-file settings-link/settings.json",
+    "goes to a person",
+  ],
+  [
+    "gh given stdin and then a secret: the last one is read",
+    heredoc(
+      "gh pr create --title x --body-file - --body-file .env <<'EOF'",
+      "body",
+    ),
+    "goes to a person",
+  ],
+  [
+    "gh given a plain file as a body",
+    "gh pr create --title x --body-file notes/sample.txt",
+    null,
+  ],
+  [
+    "gh given stdin as a body",
+    heredoc("gh pr create --title x --body-file - <<'EOF'", "body"),
+    null,
+  ],
+  [
+    "gh given a plain file in a cluster",
+    "gh release create v1 -F notes/sample.txt",
+    null,
+  ],
+  // Left as they are in this reading: git's own checks are the narrow one's.
+  [
+    "git given engine settings",
+    "git checkout HEAD -- .claude/settings.json",
+    null,
+  ],
+  ["git running a program by option", "git grep -O sh x", null],
 ];
 
 // The narrow reading (auto). Null when the line splits with certainty and
@@ -519,6 +582,82 @@ const NARROW: [string, string, string | null][] = [
     null,
   ],
   ["a test runner", "git status && bun test notes", "bun is not"],
+  // Still runs unasked: the plain work of git, gh and grep.
+  ...[
+    "git checkout -b feature && git restore notes/sample.txt",
+    "git checkout HEAD -- notes/sample.txt",
+    "git diff origin/main..HEAD -- notes",
+    "git log -p --oneline -- notes",
+    "git add .github/workflows/a.yml && git commit -m 'load settings in tests'",
+    "git config user.email bot@example.test",
+    "git config --local user.name Bot",
+    "git config user.name",
+    "git config --get user.name",
+    "git config --list",
+    "git config get user.email",
+    "git config --show-origin --get user.email",
+    "git config -lz",
+    "git config set user.email bot@example.test",
+    "git config User.Email bot@example.test",
+    "git --no-pager log --oneline -3",
+    "git config --get -- user.email",
+    "git config --get-urlmatch http.proxy https://example.test",
+    "git --version",
+    "git config --type=bool --get core.bare",
+    "git config --bool --get core.bare",
+    "git config --local -- user.email bot@example.test",
+    "git add 'notes/*.txt'",
+    "git commit -m 'why?'",
+    "git commit -m 'fix * in notes'",
+    "git remote add origin https://example.test/x.git",
+    "git rebase -i main",
+    "git rebase -X ours main",
+    "git difftool -t vimdiff HEAD",
+    "git mergetool",
+    "git bisect start",
+    "git submodule update --init",
+    "git grep -n x notes",
+    "gh release create v1 -F notes/sample.txt",
+    // A pattern git would not match against a kept name.
+    "git commit -m '[확인] feat: x'",
+    "git commit -m '* bullet'",
+    "gh pr create --title '[WIP] x' --body '- [ ] todo'",
+    "gh pr list --json number --jq '.[0].number'",
+    "git log --format='[%h] %s'",
+    "git grep -E '[0-9]+'",
+    "git grep -n '.*TODO'",
+    "git diff -- '*.md'",
+    "git log -- '*/README.md'",
+    "git diff -- '**/*.ts'",
+    "git restore -- 'notes/*.txt'",
+    "git log -G'[a-z]+'",
+    "git commit -m 'support [[:alpha:]] class'",
+    "git grep -e '[[:space:]]+$'",
+    "git diff -- 'apps/**/*.ts'",
+    "gh api repos/x/y/pulls --jq '.[] | .[0]'",
+    "git grep -eFOO",
+    "git rebase -Xsubtree=x main",
+    "git config --path --get core.x",
+    "git grep --untracked -e KEY",
+    "git diff a...b",
+    "gh pr checks 1",
+    "grep -r x notes --color=never",
+    "mkdir -p newnotes && grep -rn x newnotes",
+    "grep -rn -e sample -e other notes",
+    "grep -r -A 3 sample notes",
+    "gh pr create --title x --body-file notes/sample.txt",
+    heredoc("gh pr create --title x --body-file - <<'EOF'", "body"),
+    heredoc("git add -A && git commit -F - <<'EOF'", "msg"),
+    heredoc("git status && cat > notes/a.txt <<'EOF'", "x"),
+    "grep -rn sample notes",
+    "grep -r --include='*.txt' sample notes",
+    "grep -n sample notes/sample.txt",
+    "git status && git log --oneline | head -3",
+  ].map((command): [string, string, null] => [
+    `plain work: ${command.split("\n")[0]}`,
+    command,
+    null,
+  ]),
   // A single pipe splits the line: each side is judged as its own part.
   ["a log through head", "git status && git log --oneline | head -3", null],
   ["a pipe into a reader", "git status | cat > notes/a.txt", null],
@@ -618,6 +757,161 @@ const NARROW: [string, string, string | null][] = [
   ["a secret read", "git status && cat .env", "ask rule"],
   ["a secret read behind quotes", "git status && cat '.env'", "ask rule"],
   ["a secret copied", "git status && cp .env notes/copy.txt", "ask rule"],
+  // Still asks: git, gh and grep given what the ask rules do not see. Git
+  // writing a kept path, a patch or a path list, a setting that makes git
+  // run a program, gh sending a secret, a search of the whole workspace.
+  ...(
+    [
+      ["git checkout HEAD -- .claude/settings.json", "goes to a person"],
+      ["git restore --source=HEAD .claude/settings.json", "goes to a person"],
+      ["git checkout -- .git/hooks/pre-commit", "goes to a person"],
+      ["git apply notes/p.patch", "a patch"],
+      ["git apply --index notes/p.patch", "a patch"],
+      ["git --no-pager apply notes/p.patch", "a patch"],
+      ["git am notes/m.mbox", "a patch"],
+      ["git checkout --pathspec-from-file=notes/l", "a path list"],
+      ["git restore --pathspec-fro=notes/l", "a path list"],
+      ["git checkout --pathspec-from-file notes/l", "a path list"],
+      ["git config core.hooksPath notes", "git setting"],
+      ["git config core.editor vi", "git setting"],
+      ["git config core.fsmonitor 'touch x'", "git setting"],
+      ["git config --local core.pager less", "git setting"],
+      ["git config set core.editor vi", "git setting"],
+      ["git config --add core.hooksPath notes", "git setting"],
+      ["git config --unset user.name", "git setting"],
+      ["git config --edit", "git setting"],
+      ["git config --get core.editor --add x", "git setting"],
+      ["git config edit", "git setting"],
+      ["git config user.name --unset", "git setting"],
+      ["git config set core.editor vi --local", "git setting"],
+      ["git --namespace demo apply notes/p.patch", "option before its command"],
+      [
+        "git --namespace demo config core.editor true",
+        "option before its command",
+      ],
+      [
+        "git -p -c core.editor=true commit --amend",
+        "option before its command",
+      ],
+      ["git --exec-path=notes status", "option that runs a program"],
+      ["git show HEAD:.claude/settings.json", "goes to a person"],
+      ["git commit -m -- --pathspec-from-file=notes/l", "a path list"],
+      ["git commit -F -m --pathspec-from-file=notes/l", "a path list"],
+      ["git commit -F -- --pathspec-from-file=notes/l", "a path list"],
+      ["git grep -e -m .claude/settings.json", "goes to a person"],
+      ["git show HEAD:.claude/settings=local.json", "goes to a person"],
+      ["git show :0:.claude/settings.json", "goes to a person"],
+      ["gh pr create --body-file --settings-link", "goes to a person"],
+      ["gh release upload v1 -- --settings-link", "goes to a person"],
+      ["git commit -m .claude", "goes to a person"],
+      ["git diff -- -m .claude/settings.json", "goes to a person"],
+      [
+        "git checkout HEAD -- ':(top,literal).claude/settings.json'",
+        "goes to a person",
+      ],
+      ["git commit -nF.claude/settings.json", "goes to a person"],
+      ["gh pr create --title t -dF.env", "goes to a person"],
+      ["gh release upload v1 '.env#artifact'", "goes to a person"],
+      ["grep -r -e notes", "a tree the line does not name"],
+      ["grep -r -f notes/sample.txt", "a tree the line does not name"],
+      ["grep -d rec API_KEY", "a tree the line does not name"],
+      ["grep --directories=rec API_KEY", "a tree the line does not name"],
+      ["grep -n x .claude/settings.json", "goes to a person"],
+      ["grep -nif.env notes/sample.txt", "goes to a person"],
+      ["grep -r --exclude-from=.claude/x x notes", "goes to a person"],
+      ["gh pr create --title t --body-file .env", "goes to a person"],
+      ["gh pr create --title t --body-file=.env", "goes to a person"],
+      ["gh issue comment 1 -F .env", "goes to a person"],
+      ["gh pr comment 1 -F.env", "goes to a person"],
+      ["grep -r API_KEY", "a tree the line does not name"],
+      ["grep -r -A 3 API_KEY", "a tree the line does not name"],
+      ["grep --recursive API_KEY", "a tree the line does not name"],
+      ["grep --rec API_KEY", "a tree the line does not name"],
+      ["grep -d recurse API_KEY", "a tree the line does not name"],
+      ["grep --directories=recurse API_KEY", "a tree the line does not name"],
+      ["grep -r API_KEY .", "the workspace or a kept path"],
+      ["grep -rn API_KEY ./", "the workspace or a kept path"],
+      ["grep -R API_KEY notes .", "the workspace or a kept path"],
+      ["grep -r API_KEY .claude", "goes to a person"],
+      ["grep -r API_KEY notes/../..", "outside"],
+      // A pathspec spelled short, as a pattern, or by a climb back in.
+      ["git restore -- ':/.claude/settings.json'", "goes to a person"],
+      ["git restore -- ':(glob).claud[e]/settings.json'", "goes to a person"],
+      ["git restore -- '.claud?/settings.json'", "goes to a person"],
+      ["git checkout -- '*settings.json'", "goes to a person"],
+      [
+        "gh pr create --title x --body-file - --body-file .env",
+        "goes to a person",
+      ],
+      ["gh issue comment 1 -F .claude/settings.json", "goes to a person"],
+      // git running a program it was given as an option or an operand.
+      ["git --exec-path=. log", "option that runs a program"],
+      ["git --exec-path notes status", "option that runs a program"],
+      ["git grep -O sh x", "option that runs a program"],
+      ["git grep -Osh x", "option that runs a program"],
+      ["git grep -nO x", "option that runs a program"],
+      ["git grep --open-files-in-pager=sh x", "option that runs a program"],
+      ["git grep --open x", "option that runs a program"],
+      ["git difftool -x sh", "option that runs a program"],
+      ["git difftool --extcmd=sh", "option that runs a program"],
+      ["git difftool --ext sh", "option that runs a program"],
+      ["git rebase --exec sh main", "option that runs a program"],
+      ["git rebase -x sh main", "option that runs a program"],
+      ["git bisect run sh", "option that runs a program"],
+      ["git submodule foreach sh", "option that runs a program"],
+      ["git filter-branch --tree-filter sh", "option that runs a program"],
+      ["git send-email notes/m.patch", "option that runs a program"],
+      ["git fetch --upload-pack=sh origin", "option that runs a program"],
+      ["git ls-remote --upload-pack sh origin", "option that runs a program"],
+      ["git push --receive-pack=sh origin", "option that runs a program"],
+      ["git push --exec=sh origin", "option that runs a program"],
+      ["git send-pack --receive-pack=sh x", "option that runs a program"],
+      ["git ls-remote -u ./notes/x.sh .", "option that runs a program"],
+      ["git ls-remote -ux .", "option that runs a program"],
+      ["git submodule--helper foreach 'touch x'", "option that runs a program"],
+      ["git instaweb --httpd=sh", "option that runs a program"],
+      ["git daemon --access-hook=sh", "option that runs a program"],
+      ["git svn --authors-prog=sh fetch", "option that runs a program"],
+      [
+        "git grep --untracked --no-exclude-standard -e KEY",
+        "the workspace or a kept path",
+      ],
+      ["git restore -- '.mcp*'", "goes to a person"],
+      ["git restore -- ':(top,glob)**/settings.json'", "goes to a person"],
+      ["git ls-files '*.json'", "goes to a person"],
+      ["git add '*'", "goes to a person"],
+      ["gh pr create -F=.claude/settings.json", "goes to a person"],
+      ["git restore -- 'apps/web/.yarnrc.ym?'", "goes to a person"],
+      ["git restore -- 'apps/web/credential?.json'", "goes to a person"],
+      ["git restore -- 'apps/id_rs[a]'", "goes to a person"],
+      ["git restore -- 'apps/*/.yarnrc.yml'", "goes to a person"],
+      ["git checkout HEAD -- '.cl\\aude/settings.json'", "goes to a person"],
+      [
+        "git checkout HEAD -- '.c[[:alpha:]]aude/settings.json'",
+        "goes to a person",
+      ],
+      ["git restore -- '.c[!x]aude/x'", "goes to a person"],
+      ["git restore -- '.aw?/c*'", "goes to a person"],
+      ["git checkout HEAD -- 'apps/web*.env'", "goes to a person"],
+      ["git checkout HEAD -- 'apps?web?.en[v]'", "goes to a person"],
+      ["git checkout HEAD -- 'apps/web[/].en[v]'", "goes to a person"],
+      ["git checkout HEAD -- 'apps/web/.e[!N]v'", "goes to a person"],
+      [
+        `git commit -${"n".repeat(40)}F.claude/settings.json`,
+        "too long to read",
+      ],
+      [
+        `git commit -${"n".repeat(31)}F.claude/settings.json`,
+        "goes to a person",
+      ],
+      ["git checkout HEAD -- '.cl[!A]ude/settings.json'", "goes to a person"],
+      ["git checkout HEAD -- '.c[z-al]aude/settings.json'", "goes to a person"],
+    ] as const
+  ).map(([command, why]): [string, string, string] => [
+    `git, gh or grep: ${command}`,
+    command,
+    why,
+  ]),
   // Still asks: a heredoc fed to a command that may take its lines as names,
   // paths or directives the line does not show.
   ...[
@@ -848,6 +1142,71 @@ describe("the narrow reading", () => {
         at(),
       ),
     ).toBeNull();
+  });
+
+  test("a path git reads from the repository's top is judged from there", () => {
+    const below = at(join(workspace, "notes"));
+    expect(
+      askedLineRefusal("git show HEAD:.claude/settings.json", below),
+    ).toContain("goes to a person");
+    expect(
+      askedLineRefusal(
+        "git checkout HEAD -- ':(top).claude/settings.json'",
+        below,
+      ),
+    ).toContain("goes to a person");
+    expect(
+      askedLineRefusal("git show HEAD:notes/sample.txt", below),
+    ).toBeNull();
+    // A climb back into the workspace is judged where it lands.
+    expect(
+      askedLineRefusal("grep -nif../.claude/settings.json sample.txt", below),
+    ).toContain("goes to a person");
+    expect(
+      askedLineRefusal("git commit -nF../.claude/settings.json", below),
+    ).toContain("goes to a person");
+    expect(askedLineRefusal("git commit -nF../../x", below)).toContain(
+      "outside",
+    );
+  });
+
+  test("a path git reads from a tree is kept by its name, whatever the work tree holds", () => {
+    const tree = realpathSync(mkdtempSync(join(root, "tree-")));
+    mkdirSync(join(tree, "notes"));
+    writeFileSync(join(tree, "notes", "sample.txt"), "sample\n");
+    symlinkSync(join(tree, "gone"), join(tree, ".claude"));
+    const there = { workspace: tree, shell: tree };
+    expect(
+      askedLineRefusal("git show HEAD:.claude/settings.json", there),
+    ).toContain("goes to a person");
+    expect(
+      askedLineRefusal("git show HEAD:notes/sample.txt", there),
+    ).toBeNull();
+  });
+
+  test("a pattern of many stars is read in time", () => {
+    const started = performance.now();
+    expect(
+      askedLineRefusal(`git commit -m '${"*".repeat(30)}Z'`, at()),
+    ).toBeNull();
+    expect(
+      askedLineRefusal(
+        `gh pr create --title x --body '${"*?".repeat(1000)}'`,
+        at(),
+      ),
+    ).toContain("goes to a person");
+    // A markdown list as a body: each word starts with `-` and holds `[`.
+    const list = Array.from(
+      { length: 120 },
+      (_, index) => `- fix ${index}: arr[i] uses a* glob`,
+    ).join("\n");
+    expect(
+      askedLineRefusal(`gh pr create --title x --body '${list}'`, at()),
+    ).toBeNull();
+    expect(
+      askedLineRefusal(`git commit -m '-${"[".repeat(1000)}'`, at()),
+    ).toBeNull();
+    expect(performance.now() - started).toBeLessThan(500);
   });
 
   test("only the narrow reading splits at a single pipe", () => {

@@ -37,6 +37,7 @@ const VIEW: SurfaceBinding = {
   mode: "on",
   listen: "free",
   m1_judgments_per_hour: 12,
+  report_mode: null,
   ceiling: DEFAULT_SURFACE_CEILING,
   home: true,
   memory_write_policy: "deny",

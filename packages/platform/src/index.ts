@@ -103,6 +103,7 @@ export * from "./musterrolle/ports/credential-binding-store.ts";
 export * from "./musterrolle/ports/env-variable-store.ts";
 export * from "./extensions/ports/extension-bundle-store.ts";
 export * from "./extensions/ports/skill-git-source-store.ts";
+export * from "./extensions/ports/skill-repository-store.ts";
 export * from "./musterrolle/ports/decision-log.ts";
 export * from "./scheduler/ports/execution-backend.ts";
 export * from "./github/ports/github-app-store.ts";
@@ -140,6 +141,7 @@ export * from "./sessions/ports/session-unit-of-work.ts";
 export * from "./sessions/ports/settings-document-store.ts";
 export * from "./surface/ports/surface-app-store.ts";
 export * from "./surface/ports/surface-config-token-store.ts";
+export * from "./surface/ports/bound-reply-store.ts";
 export * from "./surface/ports/surface-inbound-event-store.ts";
 export * from "./surface/ports/surface-install-store.ts";
 export * from "./ports/surface-outbox-store.ts";
@@ -148,6 +150,7 @@ export * from "./surface/ports/surface-binding-store.ts";
 export * from "./musterrolle/ports/team-store.ts";
 export * from "./sessions/ports/turn-interrupts.ts";
 export * from "./sessions/ports/session-stops.ts";
+export * from "./sessions/ports/task-closes.ts";
 export * from "./limits/ports/budget-ledger.ts";
 export * from "./limits/ports/conversation-call-store.ts";
 export * from "./limits/ports/provider-exchange-ledger.ts";
@@ -180,6 +183,7 @@ export * from "./action/github/github-work-service.ts";
 export * from "./sessions/installation-settings.ts";
 export * from "./sessions/interrupt-service.ts";
 export * from "./sessions/session-stop.ts";
+export * from "./sessions/task-close.ts";
 export * from "./sessions/outcome-refresher.ts";
 export * from "./sessions/output-service.ts";
 export * from "./decision/pending-service.ts";
@@ -232,6 +236,13 @@ export {
   UNREADABLE,
 } from "./extensions/skill-checks.ts";
 export * from "./extensions/skill-git-sync.ts";
+export * from "./extensions/skill-repositories.ts";
+export {
+  listSkillRepository,
+  repositoryRootFiles,
+  SKILL_REPOSITORY_LIMITS,
+  type SkillListing,
+} from "./extensions/skill-repository-listing.ts";
 export * from "./workspace-mcp/ports/workspace-mcp-store.ts";
 export {
   type WorkspaceMcpRemoteDeps,
