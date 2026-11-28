@@ -66,7 +66,11 @@ export {
   lockSlackChannelMarks,
   lockSlackSourceMark,
 } from "./source-mark-lock.ts";
-export { standaloneTaskOf } from "./standalone-tasks.ts";
+export {
+  handOffClosing,
+  standaloneTaskOf,
+  syncHandOffClosing,
+} from "./standalone-tasks.ts";
 export {
   lockSessionForSources,
   newTurnSources,

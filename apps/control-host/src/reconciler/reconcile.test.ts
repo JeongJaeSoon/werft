@@ -130,6 +130,10 @@ describe("reconciler run", () => {
         expect(options).toEqual({ dryRun: false, limit: 12 });
         return 4;
       },
+      syncHandOffClosing: async (options) => {
+        expect(options).toEqual({ dryRun: false, limit: 12 });
+        return { filled: 2, cleared: 1 };
+      },
       closeIdleTasks: async (limit) => {
         // Its own cap, not the batch size.
         expect(limit).toBe(50);
@@ -174,6 +178,7 @@ describe("reconciler run", () => {
       lines: 4,
     });
     expect(result.slackMembersPurged).toBe(3);
+    expect(result.handOffClosing).toEqual({ filled: 2, cleared: 1 });
     expect(result.tasksClosedIdle).toBe(2);
     expect(sink.records).toEqual([
       expect.objectContaining({
@@ -296,6 +301,11 @@ describe("reconciler run", () => {
       }),
       expect.objectContaining({
         level: "info",
+        message: "Hand-off closing rules synced",
+        fields: { dry_run: false, filled_count: 2, cleared_count: 1 },
+      }),
+      expect.objectContaining({
+        level: "info",
         message: "Idle tasks closed",
         fields: { dry_run: false, closed_count: 2 },
       }),
@@ -408,6 +418,10 @@ describe("reconciler run", () => {
         seen.push(dryRun);
         return 1;
       },
+      syncHandOffClosing: async ({ dryRun }) => {
+        seen.push(dryRun);
+        return { filled: 1, cleared: 0 };
+      },
       closeIdleTasks: async () => {
         throw new Error("a dry run closes no task");
       },
@@ -421,6 +435,7 @@ describe("reconciler run", () => {
     });
 
     expect(seen).toEqual([
+      true,
       true,
       true,
       true,
@@ -511,6 +526,7 @@ describe("reconciler run", () => {
         }),
         purgeSlackChannelMembers: async () => 0,
         purgeAuthAttemptWindows: async () => 0,
+        syncHandOffClosing: async () => ({ filled: 0, cleared: 0 }),
         closeIdleTasks: async () => 0,
         reconcileOwnership: async () => ({ flagged: [], cleared: [] }),
         projectToolCalls: async () => ({
@@ -563,6 +579,7 @@ describe("reconciler run", () => {
     });
     const purgeSlackChannelMembers = async () => 0;
     const purgeAuthAttemptWindows = async () => 0;
+    const syncHandOffClosing = async () => ({ filled: 0, cleared: 0 });
     const closeIdleTasks = async () => 0;
     const reconcileOwnership = async () => ({ flagged: [], cleared: [] });
     const projectToolCalls = async () => ({
@@ -602,6 +619,7 @@ describe("reconciler run", () => {
           pruneChannelSummaryHistory,
           purgeSlackChannelMembers,
           purgeAuthAttemptWindows,
+          syncHandOffClosing,
           closeIdleTasks,
           reconcileOwnership,
           projectToolCalls,
@@ -630,6 +648,7 @@ describe("reconciler run", () => {
         pruneChannelSummaryHistory,
         purgeSlackChannelMembers,
         purgeAuthAttemptWindows,
+        syncHandOffClosing,
         closeIdleTasks,
         reconcileOwnership,
         projectToolCalls,
@@ -656,6 +675,7 @@ describe("reconciler run", () => {
         pruneChannelSummaryHistory,
         purgeSlackChannelMembers,
         purgeAuthAttemptWindows,
+        syncHandOffClosing,
         closeIdleTasks,
         reconcileOwnership,
         projectToolCalls,

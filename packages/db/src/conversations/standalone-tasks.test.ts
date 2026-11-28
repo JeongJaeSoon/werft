@@ -6,6 +6,11 @@ import {
   type ConversationTopicId,
   type ConversationTurnId,
   conversationIdSchema,
+  TASK_CLOSING_DEFAULT,
+  TASK_LIMITS_DEFAULT,
+  TASK_OPEN_LIMIT_PER_AGENT,
+  TASK_OPEN_LIMIT_PER_CONVERSATION,
+  type TaskClosing,
 } from "@werft-ai/contracts";
 import type {
   ConversationToolTurn,
@@ -33,12 +38,15 @@ import {
   turns,
   users,
 } from "../schema.ts";
+import { createPostgresTaskCloses } from "../sessions/task-close.ts";
+import { openTaskLimit } from "../sessions/task-open.ts";
 import { rowsOf } from "../statement-rows.ts";
 import { createPostgresConversationRoutes } from "../surface/conversation-routes.ts";
 import { makeFixtureRelease, sessionPinColumns } from "../testing/spec-pins.ts";
 import { createPostgresConversationReadToolStore } from "./conversation-read-tools.ts";
 import { createPostgresConversationStore } from "./conversation-store.ts";
 import { adoptSessionParent } from "./session-parents.ts";
+import { syncHandOffClosing } from "./standalone-tasks.ts";
 
 const TEAM = "T0DM3";
 const SECRET = { current: new Uint8Array(32) } as never;
@@ -432,5 +440,279 @@ describe("a DM person's standalone sessions (v1-b/DM3)", () => {
     expect(await routes().bindStandalone(route(privateOne))).toBe("bound");
     expect([await visibleTo(person), await visibleTo(other)]).toEqual(before);
     expect(before).toEqual([true, false]);
+  });
+  // 94S-2585: a hand-off's session is a task of the DM, under the closing
+  // rules the DM's own tasks get.
+  const closingOf = async (id: string) =>
+    (
+      await db
+        .select({ closing: sessions.taskClosing })
+        .from(sessions)
+        .where(eq(sessions.id, id))
+    )[0]?.closing;
+
+  /** The route_to_task turn a hand-off of `r` settled routed, as written. */
+  async function routedTurn(
+    r: PendingConversationRoute,
+    effect: "routed" | "voided" = "routed",
+  ) {
+    await db.execute(sql`
+      INSERT INTO conversation_turns (id, workspace_id, agent_id,
+        conversation_id, origin, state, requester_kind, requester_id,
+        decision, routed_session_id, task_effect, slack_installation_id,
+        ended_at)
+      VALUES (${r.turnId}::uuid, ${ws}::uuid, ${agentId}::uuid,
+        ${r.conversationId}::uuid, 'm2', 'decided', 'user',
+        ${r.requesterUserId}, 'route_to_task', ${r.sessionId}::uuid,
+        ${effect}, ${installationId}::uuid, now())`);
+    await db.execute(sql`
+      INSERT INTO conversation_engagements (workspace_id, agent_id, team_id,
+        channel_id, ts, kind, conversation_turn_id)
+      VALUES (${ws}::uuid, ${agentId}::uuid, ${TEAM}, ${r.thread.channelId},
+        ${r.thread.messageTs}, 'mention', ${r.turnId}::uuid)`);
+  }
+
+  test("a bind gives the session the closing rules of the DM's tasks, and keeps rules already there", async () => {
+    const mine = await session();
+    expect(await closingOf(mine)).toBe(null);
+    expect(await routes().bindStandalone(route(mine))).toBe("bound");
+    expect(await closingOf(mine)).toEqual(TASK_CLOSING_DEFAULT);
+
+    const own: TaskClosing = {
+      eventRules: false,
+      idleDays: 30,
+      quietAfterLimitDays: 30,
+    };
+    const ruled = await session();
+    await db
+      .update(sessions)
+      .set({ taskClosing: own })
+      .where(eq(sessions.id, ruled));
+    expect(await routes().bindStandalone(route(ruled))).toBe("bound");
+    expect(await closingOf(ruled)).toEqual(own);
+
+    // A bind refused writes none.
+    const taken = await session();
+    const r = route(taken);
+    const holder = await session();
+    expect(await routes().bindStandalone({ ...r, sessionId: holder })).toBe(
+      "bound",
+    );
+    expect(await routes().bindStandalone(r)).toBe("thread_taken");
+    expect(await closingOf(taken)).toBe(null);
+  });
+
+  test("an unhanded end takes the closing rules back with the parent; a kept bind keeps them", async () => {
+    const mine = await session();
+    const r = route(mine);
+    expect(await routes().bindStandalone(r)).toBe("bound");
+    await routes().settle(r, "voided", null, null);
+    expect(await parentOf(mine)).toBe(null);
+    expect(await closingOf(mine)).toBe(null);
+    // Standalone again, and a task of no one.
+    expect(await routes().openTask(route(mine))).toEqual({
+      kind: "standalone",
+    });
+
+    const used = await session();
+    const u = route(used);
+    expect(await routes().bindStandalone(u)).toBe("bound");
+    await db.insert(turns).values({
+      sessionId: used,
+      sequence: 1,
+      message: "a reply in the DM thread",
+      status: "queued",
+    });
+    await routes().settle(u, "failed", null, null);
+    expect(await closingOf(used)).toEqual(TASK_CLOSING_DEFAULT);
+  });
+
+  test("the reconciler fills a routed hand-off left without rules and nothing else; it clears one taken back without them", async () => {
+    // Bound by an image that wrote no rules, its turn settled routed.
+    const old = await session();
+    const o = route(old);
+    expect(await routes().bindStandalone(o)).toBe("bound");
+    await db
+      .update(sessions)
+      .set({ taskClosing: null })
+      .where(eq(sessions.id, old));
+    await routedTurn(o);
+    // Bound alike, its turn voided (an old settle kept the bind): no task.
+    const voided = await session();
+    const v = route(voided);
+    expect(await routes().bindStandalone(v)).toBe("bound");
+    await db
+      .update(sessions)
+      .set({ taskClosing: null })
+      .where(eq(sessions.id, voided));
+    await routedTurn(v, "voided");
+    // A DM thread's session no hand-off made: linked, parented, no rules.
+    const dmSession = await session({ parent: dm });
+    await db.insert(sessionLinks).values({
+      id: randomUUID(),
+      workspaceId: ws,
+      ownerId: ws,
+      sessionId: dmSession,
+      installationId,
+      surfaceBindingId: dmBinding,
+      surfaceRef: `D0DM3:${dmSession}`,
+      channelId: "D0DM3",
+      threadId: "7.0",
+      openedByTs: "7.0",
+      agentId,
+      releaseId: release,
+    });
+    // A standalone session never handed to, and a task the DM opened.
+    const untouched = await session();
+    const own: TaskClosing = {
+      eventRules: false,
+      idleDays: 5,
+      quietAfterLimitDays: 5,
+    };
+    const dmTask = await session({ parent: dm });
+    await db
+      .update(sessions)
+      .set({
+        taskClosing: own,
+        taskInterpretation: {
+          goal: "g",
+          doneWhen: "d",
+          limits: { ...TASK_LIMITS_DEFAULT },
+        },
+      })
+      .where(eq(sessions.id, dmTask));
+    // Rules and an interpretation, no parent and no link: a task as opened,
+    // never a hand-off's.
+    const unparented = await session();
+    await db
+      .update(sessions)
+      .set({
+        taskClosing: own,
+        taskInterpretation: {
+          goal: "g",
+          doneWhen: "d",
+          limits: { ...TASK_LIMITS_DEFAULT },
+        },
+      })
+      .where(eq(sessions.id, unparented));
+    // Taken back by an image that left its rules: no parent, no link.
+    const takenBack = await session();
+    await db
+      .update(sessions)
+      .set({ taskClosing: TASK_CLOSING_DEFAULT })
+      .where(eq(sessions.id, takenBack));
+
+    expect(
+      await syncHandOffClosing(db, { dryRun: true, limit: 100 }),
+    ).toMatchObject({ filled: 1 });
+    expect(await closingOf(old)).toBe(null);
+    const synced = await syncHandOffClosing(db, { dryRun: false, limit: 100 });
+    expect(synced.filled).toBe(1);
+    expect(synced.cleared).toBeGreaterThanOrEqual(1);
+    expect(await closingOf(old)).toEqual(TASK_CLOSING_DEFAULT);
+    expect(await closingOf(voided)).toBe(null);
+    expect(await closingOf(dmSession)).toBe(null);
+    expect(await closingOf(untouched)).toBe(null);
+    expect(await closingOf(dmTask)).toEqual(own);
+    expect(await closingOf(unparented)).toEqual(own);
+    expect(await closingOf(takenBack)).toBe(null);
+    // Once each: the next pass finds nothing.
+    expect(await syncHandOffClosing(db, { dryRun: false, limit: 100 })).toEqual(
+      { filled: 0, cleared: 0 },
+    );
+  });
+
+  test("a handed session is a task the time rules and its pull request close", async () => {
+    const idle = await session();
+    expect(await routes().bindStandalone(route(idle))).toBe("bound");
+    const merged = await session();
+    expect(await routes().bindStandalone(route(merged))).toBe("bound");
+    // Paused: closeAtomic closes it with no drain. Idle past the 14 days.
+    await db.execute(sql`
+      UPDATE sessions SET admission_state = 'paused',
+        created_at = now() - interval '15 days'
+      WHERE id IN (${idle}::uuid, ${merged}::uuid)`);
+    await db.execute(sql`
+      UPDATE session_links SET created_at = now() - interval '15 days'
+      WHERE session_id = ${idle}::uuid`);
+    await db.execute(sql`UPDATE sessions SET created_at = now()
+      WHERE id = ${merged}::uuid`);
+    await db.execute(sql`
+      INSERT INTO session_outcomes (id, owner_id, session_id, type, url,
+        external_id, state, state_changed_at)
+      VALUES (gen_random_uuid(), ${ws}, ${merged}::uuid, 'github_pull_request',
+        'https://github.com/acme/app/pull/1', '1', 'merged', now())`);
+    const closes = createPostgresTaskCloses(db);
+    expect(await closes.closeOnPullRequests(100)).toBe(1);
+    expect(await closes.closeOnTimeRules(100)).toBe(1);
+    const reasons = rowsOf<{ id: string; reason: string | null }>(
+      await db.execute(sql`
+        SELECT id, task_closed_reason AS reason FROM sessions
+        WHERE id IN (${idle}::uuid, ${merged}::uuid)`),
+    );
+    expect(
+      Object.fromEntries(reasons.map((row) => [row.id, row.reason])),
+    ).toEqual({ [idle]: "abandoned", [merged]: "completed" });
+    // Its requester's close is a task's too.
+    const asked = await session();
+    expect(await routes().bindStandalone(route(asked))).toBe("bound");
+    await db
+      .update(sessions)
+      .set({ admissionState: "paused" })
+      .where(eq(sessions.id, asked));
+    expect(
+      await closes.close({
+        principal: { ownerId: ws },
+        sessionId: asked,
+        reason: "completed",
+      }),
+    ).toBe("closed");
+  });
+
+  test("handed sessions count as the DM's open tasks: a hand-off goes past the limit, a new task then is refused", async () => {
+    const limited = await createPostgresConversationStore(
+      db,
+    ).findOrCreateConversation({
+      kind: "dm",
+      workspaceId: ws,
+      agentId,
+      personUserId: other,
+    });
+    const limits = {
+      conversation: TASK_OPEN_LIMIT_PER_CONVERSATION,
+      agent: TASK_OPEN_LIMIT_PER_AGENT,
+    };
+    const atLimit = () =>
+      db.transaction((tx) =>
+        openTaskLimit(tx, {
+          releaseId: release,
+          conversationId: limited.id,
+          limits,
+        }),
+      );
+    // The other person's DM: tasks of the agent's other tests count toward
+    // the agent's limit, so it is read by the conversation alone.
+    const before = await atLimit();
+    expect(before === null || before === "agent").toBe(true);
+    const handOff = (sessionId: string): PendingConversationRoute => {
+      const r = route(sessionId, { requester: other });
+      return {
+        ...r,
+        conversationId: conversationIdSchema.parse(limited.id),
+        dm: { personUserId: other, surfaceBindingId: dmBinding },
+      };
+    };
+    for (let n = 0; n < TASK_OPEN_LIMIT_PER_CONVERSATION + 1; n++) {
+      const id = await session({ by: other });
+      expect(await routes().bindStandalone(handOff(id))).toBe("bound");
+    }
+    const open = rowsOf<{ n: number }>(
+      await db.execute(sql`
+        SELECT count(*)::int AS n FROM sessions
+        WHERE parent_conversation_id = ${limited.id}::uuid
+          AND task_closing IS NOT NULL`),
+    );
+    expect(open[0]?.n).toBe(TASK_OPEN_LIMIT_PER_CONVERSATION + 1);
+    expect(await atLimit()).toBe("conversation");
   });
 });

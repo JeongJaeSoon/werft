@@ -41,6 +41,7 @@ import {
   SESSION_SCOPE_VALUES,
   SLACK_EMERGENCY_STOP_TEXT,
   SLACK_INBOUND_MAX_ATTEMPTS,
+  SLACK_INTERACTION_ACTIONS,
   SLACK_NOTICE_MESSAGES,
   TASK_CLOSING_DEFAULT,
 } from "@werft-ai/contracts";
@@ -5237,8 +5238,10 @@ describe.each(ENGINES)(
       const [session] = (await sessionsOf(fixture)).filter(
         (row) => row.id === task,
       );
-      // Its parent is the person's DM now (Architect, 2026-11-28).
+      // Its parent is the person's DM now (Architect, 2026-11-28), and it
+      // is a task under the DM's tasks' closing rules (94S-2585).
       expect(session?.parentConversationId).toBe(dm?.id ?? "missing");
+      expect(session?.taskClosing).toEqual(TASK_CLOSING_DEFAULT);
       expect(
         (await links()).filter((link) => link.sessionId === task),
       ).toMatchObject([
@@ -5264,6 +5267,10 @@ describe.each(ENGINES)(
         `${SLACK_NOTICE_MESSAGES.en.routeStandalone}\n\nAI agent · Werft`,
         `${SLACK_NOTICE_MESSAGES.en.progressQueued}\n\nAI agent · Werft`,
       ]);
+      // The progress message carries the task's close buttons.
+      expect(
+        JSON.stringify(dmPosts("100.000100")[1]?.options.blocks),
+      ).toContain(SLACK_INTERACTION_ACTIONS.taskComplete);
       expect(
         slack.messages.filter((posted) => posted.text.includes("earlier work")),
       ).toEqual([]);
