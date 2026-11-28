@@ -1033,10 +1033,13 @@ const WIDE: [string, string, string | null][] = [
   ["a recursive zegrep", "zegrep -r x", "a tree the line does not name"],
   ["a recursive zfgrep", "zfgrep -r x", "a tree the line does not name"],
   ["a recursive ggrep", "ggrep -r x", "a tree the line does not name"],
+  ["an alias of grep quoted", "'egrep' -r x", "a tree the line does not name"],
+  ["an alias of grep escaped", "\\fgrep -r x", "a tree the line does not name"],
+  ["a process search that ends in grep", "pgrep -af node", "a grep by a name"],
   [
-    "an alias of grep quoted and escaped",
-    "'egrep' -r x; \\fgrep -r x",
-    "a tree the line does not name",
+    "a file named like an alias of grep",
+    "ls egrep notes/x.pem",
+    "an ask rule names",
   ],
   [
     "an alias of grep behind env and its path",

@@ -1399,7 +1399,7 @@ const TRACE_SWITCH = /^(\d?|true|false)$/i;
 const TOOLS = ["git", "gh", "grep"];
 /** Whether a word names one of {@link TOOLS}, or a grep this does not know. */
 const namesTool = (word: string) =>
-  TOOLS.includes(toolOf(word)) || nameOf(word).endsWith("grep");
+  TOOLS.includes(nameOf(word)) || nameOf(word).endsWith("grep");
 /** Settings of a git or gh environment that run nothing. */
 const QUIET_ENV =
   /^(LC_\w+|LANG|LANGUAGE|TZ|TERM|COLUMNS|NO_COLOR|FORCE_COLOR|CLICOLOR(_FORCE)?|CI|GIT_OPTIONAL_LOCKS|GIT_CONFIG_NOSYSTEM|GIT_TERMINAL_PROMPT|GIT_(AUTHOR|COMMITTER)_(NAME|EMAIL|DATE)|GH_REPO|GH_HOST|GH_PROMPT_DISABLED|GH_NO_UPDATE_NOTIFIER|GH_FORCE_TTY)$/;
