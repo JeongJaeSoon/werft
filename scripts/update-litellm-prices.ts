@@ -288,7 +288,7 @@ export function drops(before: Snapshot, after: Snapshot): string[] {
     if (had.has(model) || model.includes("/")) continue;
     const prefixed = before.tokens
       .filter(([name]) => name.endsWith(`/${model}`))
-      .map(([name]) => name.replaceAll(tick, "'"));
+      .map(([name]) => quoted(name).slice(2));
     if (prefixed.length > 0) {
       lines.push(
         `${quoted(model)}: new, ${rates.join(", ")}; the name was priced by ${prefixed.join(", ")}`,

@@ -279,7 +279,7 @@ describe("what a moved pin reports for the pull request", () => {
         },
       ),
     ).toEqual([
-      `- ${tick}m${tick}: new, 0.1, 0.4; the name was priced by a/m, b/eu/m`,
+      `- ${tick}m${tick}: new, 0.1, 0.4; the name was priced by ${tick}a/m${tick}, ${tick}b/eu/m${tick}`,
     ]);
   });
 

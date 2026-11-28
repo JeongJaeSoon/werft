@@ -46,8 +46,11 @@ jobs:
       - run: bun test ./tests/update-litellm-prices.test.ts ./packages/platform/src/limits/model-prices-litellm.test.ts
       - run: bun scripts/update-litellm-prices.ts --check
 
+  # From main only: the branch it pushes is named by the pin alone, and one
+  # cut from another branch would carry that branch's commits into the pull
+  # request for main.
   update:
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     # The job pushes one branch and opens its pull request, or files an issue
