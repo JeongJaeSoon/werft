@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { ConversationRollout } from "@werft-ai/contracts";
+import {
+  type ConversationRollout,
+  MESSAGE_MAX_BYTES,
+} from "@werft-ai/contracts";
 import type { SurfaceInboundClaim } from "@werft-ai/platform";
 import { createSlackSessionHandler } from "./slack-session-handler.ts";
 
@@ -129,6 +132,17 @@ describe("a bound thread's unmentioned reply asks for M1's judgment", () => {
     });
   });
 
+  test("an escaped mention of another user is not addressed to them", async () => {
+    const { receipt } = await receive({
+      rollout: "on",
+      linked: true,
+      text: "&lt;@U2&gt; take a look",
+    });
+    expect(receipt?.judgment).toEqual({
+      rule: { decision: "reply", reason: "default_reply" },
+    });
+  });
+
   test("not with the switch off", async () => {
     const { receipt } = await receive({ rollout: "off", linked: true });
     expect(receipt).toMatchObject({ engagement: "bound" });
@@ -180,6 +194,18 @@ describe("an unbound thread the agent took part in lately", () => {
     expect(receipt).toMatchObject({
       buffered: { body: `<@${BOT}> A && B &lt;` },
     });
+  });
+
+  test("a body only its read form fits in is held, as the size is checked on what is held", async () => {
+    // "&lt;" is four bytes of text and one once read.
+    const count = MESSAGE_MAX_BYTES / 4 + 1;
+    const { receipt } = await receive({
+      rollout: "shadow",
+      linked: false,
+      engaged: true,
+      text: "&lt;".repeat(count),
+    });
+    expect(receipt).toMatchObject({ buffered: { body: "<".repeat(count) } });
   });
 
   test("a thread not engaged under mention-only is not held", async () => {
