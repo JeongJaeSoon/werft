@@ -1,5 +1,6 @@
 import {
   type AuthorizationDecision,
+  type AuthorizationRequest,
   type AuthorizationSubject,
   INSTALLATION_SESSION_SCOPE_VALUES,
   type SlackEventDropReason,
@@ -53,6 +54,11 @@ export type SlackInput = {
   requestId: string;
   /** The web page where a person links their Slack account. */
   connectUrl: string;
+  /**
+   * Refused before the policy for this reason: the request is judged as
+   * nothing, and the deny is kept and told as the policy's would be.
+   */
+  refuse?: "surface_mismatch";
 };
 
 const NO_CEILING: SurfaceCeiling = { actions: [], disclosure: "summary" };
@@ -209,7 +215,7 @@ export async function authorizeSlackInput(
     },
   };
   const { resource } = input;
-  const decision = await deps.authorization.authorize({
+  const request = {
     subject,
     action: input.action,
     resource:
@@ -236,7 +242,16 @@ export async function authorizeSlackInput(
               : { release_id: resource.releaseId }),
           },
     request_id: input.requestId,
-  });
+  } satisfies AuthorizationRequest;
+  const { refuse } = deps.authorization;
+  if (input.refuse !== undefined && refuse === undefined) {
+    // A refusal that would go unkept: the caller's type asks for refuse.
+    throw new Error("this authorization policy keeps no refusal");
+  }
+  const decision =
+    input.refuse === undefined || refuse === undefined
+      ? await deps.authorization.authorize(request)
+      : await refuse(request, input.refuse);
   return {
     status: "decided",
     workspaceId,
