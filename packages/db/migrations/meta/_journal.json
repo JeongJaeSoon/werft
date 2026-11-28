@@ -2178,6 +2178,13 @@
       "when": 1795857839000,
       "tag": "0401_conversation_call_price",
       "breakpoints": true
+    },
+    {
+      "idx": 402,
+      "version": "7",
+      "when": 1795860322859,
+      "tag": "0402_workspace_mcp_auth_none",
+      "breakpoints": true
     }
   ]
 }
