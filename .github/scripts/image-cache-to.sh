@@ -2,8 +2,8 @@
 # Prints `to=<cache-to>` for GITHUB_OUTPUT: what a trusted image build writes to
 # the buildkit layer cache of scope images-<APP>-<ARCH>.
 #
-# The first build of a UTC day on this ref writes it; later builds that day
-# only read it. Every write stores the release stage again, and its
+# A build writes it until the ref has an entry made that UTC day that counts
+# (the two rules below); later builds that day only read it. Every write stores the release stage again, and its
 # `COPY --from=pruned /app` layer (about 190 MB for worker and worker-codex)
 # changes with every commit, so a write per main push filled the 10 GB
 # repository cache with layers nothing reads again. The layers later builds
@@ -13,7 +13,8 @@
 # The day's entry is also written again after the image's Dockerfile or
 # fetch-pinned.ts changed: with mode=min a later build reuses the Go build
 # stages from this cache only through the release layers copied from them, so
-# after a pin change builds compile them until an entry holds the new pins.
+# after a pin change a build that has no result of its own compiles them until an
+# entry holds the new pins.
 #
 # An entry written before 00:30Z may come from a build that started the day
 # before, with that day's APT_UPGRADE_KEY, so it does not count as today's.
@@ -22,8 +23,10 @@
 # A shallow checkout cannot date that change and skips the input rule.
 # A main build whose inputs differ from origin/main's (queued behind a pin
 # change, or a rerun) never writes: its entry would pass for a current one.
-# publish-main fetches origin/main before this step and ends within its
-# 20-minute timeout, inside those 30 minutes.
+# publish-main fetches origin/main before this step; a shallow checkout fetches
+# it here. A build that passed this check before the change ends within its job
+# timeout (publish-main 20 minutes), so its entry is inside those 30 minutes and
+# the next build writes again.
 #
 # Never fails the job and never holds it: a listing that fails or takes longer
 # than LIST_TIMEOUT seconds writes as before, and ignore-error=true keeps a
@@ -55,8 +58,18 @@ inputs=("apps/${APP%-codex}/Dockerfile" scripts/fetch-pinned.ts)
 # True only when git shows that main has moved the inputs away from HEAD's.
 superseded() {
   [ "$GITHUB_REF" = refs/heads/main ] || return 1
-  git diff --quiet HEAD refs/remotes/origin/main -- "${inputs[@]}" 2>/dev/null
-  [ "$?" -eq 1 ]
+  # A shallow checkout's origin/main is its own commit. The low-speed options
+  # end a stalled fetch.
+  if [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = true ]; then
+    git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=20 fetch -q --no-tags --depth=1 \
+      origin +refs/heads/main:refs/remotes/origin/main >&2 ||
+      echo "::warning::could not fetch origin/main for ${scope}" >&2
+  fi
+  local status=0
+  git diff --quiet HEAD refs/remotes/origin/main -- "${inputs[@]}" >&2 || status=$?
+  [ "$status" -le 1 ] ||
+    echo "::warning::could not compare the build inputs of ${scope} with origin/main; writing it" >&2
+  [ "$status" -eq 1 ]
 }
 
 # Prints the time from which an entry holds the current inputs, nothing in a

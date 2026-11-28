@@ -232,6 +232,22 @@ test.each(["", "2026-11-27T23:00:00Z"])(
   },
 );
 
+// A scheduled build checks out one commit, so its origin/main starts as HEAD.
+test("a shallow main build asks origin whether main has moved the inputs", () => {
+  const shallowThenMoved: Checkout = (repo) => {
+    const origin = join(repo, "..", "origin");
+    mkdirSync(origin);
+    unchanged(origin);
+    git(origin, ["branch", "-M", "main"]);
+    git(repo, ["clone", "-q", "--depth=1", `file://${origin}`, "."]);
+    commit(origin, "apps/worker/Dockerfile", "2026-11-28T03:24:56Z");
+  };
+  expect(run("", 0, {}, shallowThenMoved)).toMatchObject({
+    exitCode: 0,
+    stdout: "to=\n",
+  });
+});
+
 test("a main build behind other changes, or on another ref, still writes", () => {
   expect(run("", 0, {}, behindMain("apps/worker/main.ts")).stdout).toBe(write);
   expect(
