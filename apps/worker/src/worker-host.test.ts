@@ -202,7 +202,12 @@ function toolUseMessage(
  * `result` and `turn.ended`, and an interrupt ends it `interrupted`.
  * `calls[n]` is how many tool items the n-th turn starts.
  */
-function codexShaped(base: AgentRun, calls: number[]): AgentRun {
+/** settleMs[turn]: how long that turn, if not interrupted, waits before it succeeds (50 by default). */
+function codexShaped(
+  base: AgentRun,
+  calls: number[],
+  settleMs: number[] = [],
+): AgentRun {
   const sent: AgentInput[] = [];
   let arrived = () => {};
   let interrupted = () => {};
@@ -282,7 +287,7 @@ function codexShaped(base: AgentRun, calls: number[]): AgentRun {
       if (!stopped) {
         await Promise.race([
           stop,
-          new Promise((resolve) => setTimeout(resolve, 50)),
+          new Promise((resolve) => setTimeout(resolve, settleMs[turn] ?? 50)),
         ]);
       }
       yield* result(inputs, stopped);
@@ -422,7 +427,8 @@ describe("WorkerHost turn tool call limit", () => {
     const { gateway, host } = harness([{ type: "await-input" }], {
       maxTurnToolCalls: 3,
       wrap: (run) => {
-        const codex = codexShaped(run, [10, 1]);
+        // Only an interrupt ends turn 1, so the control lands while it is open.
+        const codex = codexShaped(run, [10, 1], [10_000]);
         return {
           ...codex,
           interrupt: async () => {
