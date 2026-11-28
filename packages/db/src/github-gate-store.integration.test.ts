@@ -586,6 +586,11 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
         policyFields: found?.policyFields ?? {},
       });
       if (created.outcome !== "written") throw new Error("not written");
+      // Settled, so the session's next push request is not request_open.
+      await pool.query(
+        "UPDATE push_requests SET state = 'pushed' WHERE id = $1",
+        [created.request.id],
+      );
       return created.request;
     };
     const pullRequests = createPostgresPullRequests(db);
