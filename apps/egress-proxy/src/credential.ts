@@ -1987,8 +1987,9 @@ export function startCredentialProxy(
     purpose: EgressPurpose,
     who: Readonly<Record<string, unknown>>,
     signal: AbortSignal,
-    // A registered private upstream's deny list; null for anything else.
-    denied: readonly string[] | null = null,
+    // A registered private upstream's deny list as its newest grant gives
+    // it, read at each judgment; null for anything else.
+    denied: (() => readonly string[]) | null = null,
   ): Promise<Dialable | Response> {
     const host = normalizeHost(upstream.hostname);
     const port = portOf(upstream);
@@ -2002,7 +2003,7 @@ export function startCredentialProxy(
       const early =
         looked === null
           ? UNKNOWN_AUTHORIZER
-          : privateVerdict(denied, host, [], looked);
+          : privateVerdict(denied(), host, [], looked);
       if (early !== null) return refusedPrivate(early, fields, purpose);
       own = looked ?? [];
     }
@@ -2048,7 +2049,7 @@ export function startCredentialProxy(
     const late =
       denied === null
         ? null
-        : privateVerdict(denied, host, decision.addresses, own);
+        : privateVerdict(denied(), host, decision.addresses, own);
     if (late !== null) return refusedPrivate(late, fields, purpose);
     // A certificate is checked for a name; an address would have to be
     // checked for itself, which the upstream client does not do. Nothing in
@@ -2071,7 +2072,7 @@ export function startCredentialProxy(
       address,
       host,
       port,
-      refusal: () => privateVerdict(denied, host, decision.addresses, known),
+      refusal: () => privateVerdict(denied(), host, decision.addresses, known),
     };
   }
 
@@ -2295,6 +2296,10 @@ export function startCredentialProxy(
     // A billed call's ledger entry, opened with the whole body just before
     // the upstream is called.
     ledger?: LedgerCall,
+    // The deny list of a regrant since `grant`, if one came: the body is
+    // waited for after the upstream is judged, and an address held off
+    // meanwhile is not dialled.
+    deniedSince?: () => readonly string[] | undefined,
   ): Promise<Response> {
     const who = {
       purpose: route.purpose,
@@ -2320,7 +2325,9 @@ export function startCredentialProxy(
         route.purpose,
         who,
         signal,
-        registeredPrivate(route.purpose, grant) ? (grant.deny ?? []) : null,
+        registeredPrivate(route.purpose, grant)
+          ? () => deniedSince?.() ?? grant.deny ?? []
+          : null,
       );
     let first = await dialUpstream();
     // The built-in server's name stops resolving while its container is
@@ -2851,6 +2858,7 @@ export function startCredentialProxy(
       // cannot answer does only after the grace: a blip must not break
       // every stream in flight, and an outage must not hide an ended grant.
       let grantedAt = performance.now();
+      let deniedSince: readonly string[] | undefined;
       const watchGrant = (grant: EgressGrant) => {
         regrant = setTimeout(async () => {
           const again = await authorize(
@@ -2864,6 +2872,7 @@ export function startCredentialProxy(
           if (ended) return;
           if (again.kind === "granted") {
             grantedAt = performance.now();
+            deniedSince = again.grant.deny ?? deniedSince;
             // Beside the regrant, not in its way: its answer and the next
             // timer do not wait on the ledger.
             if (opened) toLedger({ op: "renew", exchange_id: exchangeId });
@@ -3068,6 +3077,7 @@ export function startCredentialProxy(
           streamed,
           exchangeId,
           ledger,
+          () => deniedSince,
         );
         const relayed = new Response(tracked(response.body, release), {
           status: response.status,

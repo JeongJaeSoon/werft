@@ -5052,6 +5052,58 @@ describe("startCredentialProxy", () => {
         },
       );
 
+      test.skipIf(lan === undefined)(
+        "an address a regrant holds off while the body is still arriving is not dialled",
+        async () => {
+          const up = inside(() => Response.json({ id: "msg_1" }));
+          let deny: string[] = [];
+          let asks = 0;
+          const { server, lines } = marked(
+            () => {
+              asks += 1;
+              return grantOf(`http://${INSIDE}:${up.port}`, {
+                allow: "private",
+                deny,
+              });
+            },
+            async () => [lan ?? ""],
+            { selfAddresses: () => [], regrantIntervalMs: 20 },
+          );
+          const asked = async (count: number) => {
+            while (asks < count) await Bun.sleep(5);
+          };
+          expect((await messages(server.port)).status).toBe(200);
+          expect(up.seen).toHaveLength(1);
+          const first = asks;
+          let body: ReadableStreamDefaultController<Uint8Array> | undefined;
+          const slow = fetch(
+            `http://127.0.0.1:${server.port}/provider/v1/messages`,
+            {
+              method: "POST",
+              headers: { "x-api-key": WORKER_TOKEN },
+              body: new ReadableStream<Uint8Array>({
+                start(controller) {
+                  controller.enqueue(new TextEncoder().encode('{"model":'));
+                  body = controller;
+                },
+              }),
+            },
+          );
+          // Granted and judged with nothing held off; then the address is,
+          // and two more grants say so before the body ends.
+          await asked(first + 1);
+          deny = [lan ?? ""];
+          await asked(first + 3);
+          body?.enqueue(new TextEncoder().encode('"m"}'));
+          body?.close();
+          expect((await slow).status).toBe(403);
+          expect(lines.join("\n")).toContain(
+            `${lan} is the installation's own`,
+          );
+          expect(up.seen).toHaveLength(1);
+        },
+      );
+
       test("the mark holds the name to private addresses: a public answer, a mixed one and none are refused", async () => {
         let addresses: () => Promise<string[]> = async () => ["93.184.216.34"];
         const { server, looked, lines } = marked(
