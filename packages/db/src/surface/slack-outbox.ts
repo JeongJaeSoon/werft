@@ -2879,13 +2879,21 @@ export function createPostgresSlackOutboxStore(
         // stops, and after an edit it may have been the one post again.
         let progress: { ts: string | null; reposted: boolean } | undefined;
         if (row.progressKey !== null) {
-          // The message's own link, as an enqueue takes it (linkTakesNew):
-          // a close under way is waited for, and one after skips the link.
-          await tx.execute(sql`
-            SELECT 1 FROM session_links
-            WHERE installation_id = ${row.installationId}::uuid
-              AND 'progress:' || id = ${row.progressKey}
-            FOR SHARE`);
+          // The message's own link (a key 'progress:<link id>'), as an
+          // enqueue takes it (linkTakesNew): a close under way is waited
+          // for, and one after skips the link.
+          const keyOf = row.progressKey.slice("progress:".length);
+          const ownLink =
+            row.progressKey.startsWith("progress:") && UUID.test(keyOf)
+              ? keyOf
+              : null;
+          if (ownLink !== null) {
+            await tx.execute(sql`
+              SELECT 1 FROM session_links
+              WHERE id = ${ownLink}::uuid
+                AND installation_id = ${row.installationId}::uuid
+              FOR SHARE`);
+          }
           const [state] = rowsOf<{
             busy: boolean;
             superseded: boolean;
@@ -2932,8 +2940,8 @@ export function createPostgresSlackOutboxStore(
                 ) AS reposted,
                 EXISTS (
                   SELECT 1 FROM session_links pl
-                  WHERE pl.installation_id = ${row.installationId}::uuid
-                    AND 'progress:' || pl.id = ${row.progressKey}
+                  WHERE pl.id = ${ownLink}::uuid
+                    AND pl.installation_id = ${row.installationId}::uuid
                     AND NOT ${keepsProgressMessage(sql.raw("pl"))}
                 ) AS left_progress,
                 EXISTS (

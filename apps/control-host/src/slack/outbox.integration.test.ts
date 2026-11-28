@@ -8307,7 +8307,13 @@ describe.each(ENGINES)("a progress link's progress message on %s", (engine) => {
           UPDATE session_links SET closed_at = now(),
             closed_reason = 'completed', report_mode = 'per_step'`);
       });
-      await hold;
+      // The holder failing before it holds ends the test, not a hang.
+      await Promise.race([
+        hold,
+        closing.then(() => {
+          throw new Error("the close ended before it held the link");
+        }),
+      ]);
       try {
         const begun = outbox.beginSend(claim);
         expect(
