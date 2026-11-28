@@ -1451,34 +1451,27 @@ function wideKept(
   const settings: string[] = [];
   const wrappers: string[] = [];
   const options: string[] = [];
-  // The options of the last wrapper, and whether a `--` ended them.
-  let own: string[] = [];
-  let ended = false;
   let at = -1;
   for (const [index, word] of words.entries()) {
     const last = wrappers.at(-1);
     const name = nameOf(word);
-    if (last !== undefined && !ended && word.startsWith("-")) {
+    if (last !== undefined && word.startsWith("-")) {
       // A tool's path that starts with `-` (`env X=1 -tools/grep`) and an
       // option with its value glued on (`env -u/x/grep`) look alike.
       if (word.includes("/") && TOOLS.includes(name)) {
         return "a wrapper the line does not read";
       }
       options.push(word);
-      own.push(word);
-      ended = word === "--";
       continue;
     }
-    // `command -v git` only looks names up.
-    // Only `command` as the line's first word is surely the builtin
-    // (`env command` and `time command` run a program of that name), and
-    // only on options of its own.
+    // `command -v git` only looks names up. Only `command` as the line's
+    // first word is surely the builtin (`env command` and `time command`
+    // run a program of that name).
     if (
       words[0] === "command" &&
       wrappers.length === 1 &&
-      own.length > 0 &&
-      own.length === options.length &&
-      own.every((option) => /^-[vV]+$/.test(option))
+      options.length > 0 &&
+      options.every((option) => /^-[vV]+$/.test(option))
     ) {
       return null;
     }
@@ -1493,8 +1486,6 @@ function wideKept(
       break;
     } else if (WRAPPERS.includes(name)) {
       wrappers.push(name);
-      own = [];
-      ended = false;
     } else {
       // A word after a wrapper's option may be its value (`env -u X git`).
       return options.length > 0 &&

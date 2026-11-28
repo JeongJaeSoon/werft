@@ -908,6 +908,11 @@ const WIDE: [string, string, string | null][] = [
   ],
   ["a look-up of several names", "command -v bash git", null],
   [
+    "git run by command with a default path",
+    "command -p git log",
+    "a wrapper the line does not read",
+  ],
+  [
     "a tool by a path that starts with -",
     "env LC_ALL=C -tools/grep -r needle",
     "a wrapper the line does not read",
