@@ -57,7 +57,7 @@ import {
 import {
   NewSessionButton,
   NewSessionReason,
-  useNewSessionReason,
+  useNewSessionStart,
 } from "./agent-detail/new-session.tsx";
 import { OverviewTab } from "./agent-detail/overview-tab.tsx";
 import {
@@ -159,7 +159,7 @@ function AgentView({
     onOutcome: outcomeAt("releases"),
     openRelease: () => open("release"),
   });
-  const newSessionReason = useNewSessionReason(detail);
+  const newSession = useNewSessionStart(detail);
 
   // Every panel stays mounted, so leaving a tab never drops an unsaved card;
   // Radix leaves a force-mounted panel visible and in the tab order.
@@ -295,8 +295,8 @@ function AgentView({
         <div className="flex flex-1 flex-wrap items-start gap-2">
           <NewSessionButton
             agentId={detail.agent.id}
-            releaseId={detail.active_release?.id ?? null}
-            reason={newSessionReason}
+            releaseId={newSession.releaseId}
+            reason={newSession.reason}
           />
           <Link
             to="/agents"
@@ -311,7 +311,21 @@ function AgentView({
         </div>
       }
     >
-      <NewSessionReason reason={newSessionReason} />
+      <NewSessionReason
+        reason={newSession.reason}
+        action={
+          newSession.fixedOnReleaseTab ? (
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              onClick={() => open("release", releaseTab)}
+            >
+              {t("agent.tabs.toRelease")}
+            </Button>
+          ) : undefined
+        }
+      />
       <OutcomeLine outcome={placed?.at === "page" ? placed.outcome : null} />
       <OwnerlessAlert agent={agent} onAdmins={() => open("admins")} />
       {manages ? <CodexSandboxAlert detail={detail} /> : null}

@@ -988,6 +988,102 @@ describe("이 판이 읽을 수 없는 릴리스", () => {
     );
   });
 
+  // The two shapes of a detail whose active release cannot be read.
+  const unreadableActive = (detail: AgentDetail, carried: boolean) => {
+    const id = detail.agent.active_release_id;
+    if (id === null) throw new Error("no active release");
+    return {
+      id,
+      detail: {
+        ...detail,
+        active_release: carried ? detail.active_release : null,
+        unreadable_releases: [
+          { id, reason_code: "policy_pins_unreadable" as const },
+        ],
+      },
+    };
+  };
+  const reasonFor = (release: string) =>
+    agentsKo["newSession.releaseUnreadable"].replace("{release}", release);
+  const TO_RELEASE = agentsKo["agent.tabs.toRelease"];
+
+  for (const [shape, carried] of [
+    ["상세에 릴리스가 없으면", false],
+    ["읽지 못한 목록에 그 id가 있으면", true],
+  ] as const) {
+    test(`활성 릴리스를 읽지 못하고 ${shape} 새 세션 버튼을 막고 이유와 릴리스 탭 링크를 보인다`, async () => {
+      const server = await released();
+      const { id, detail } = unreadableActive(server.detail(), carried);
+      const { history } = renderAt(DETAIL, {
+        ...meAs(me()),
+        ...server.routes,
+        [`GET ${PATH}`]: () => json(200, detail),
+      });
+      await expectBlocked(reasonFor(id));
+      // The overview may point at the tab too; this is the one in the line.
+      const link = screen
+        .getAllByRole("button", { name: TO_RELEASE })
+        .find(
+          (found) =>
+            found.parentElement?.textContent ===
+            `${reasonFor(id)} ${TO_RELEASE}`,
+        );
+      if (!link) throw new Error("no link beside the reason");
+      await (await setupUser()).click(link);
+      await waitFor(() =>
+        expect(history.location.search).toContain("tab=release"),
+      );
+    });
+  }
+
+  test("읽지 못한 행이 활성 릴리스가 아니면 아무것도 막지 않는다", async () => {
+    const server = await released();
+    renderAt(DETAIL, {
+      ...meAs(me()),
+      ...server.routes,
+      [`GET ${PATH}`]: () =>
+        json(200, {
+          ...server.detail(),
+          unreadable_releases: [
+            { id: OLDER, reason_code: "policy_pins_unreadable" },
+          ],
+        }),
+    });
+    const { dialog } = await openDialog();
+    expect(within(dialog).queryByRole("alert")).toBeNull();
+    expect(document.body.textContent).not.toContain(reasonFor(OLDER));
+  });
+
+  test("대화상자를 연 사이 활성 릴리스를 읽지 못하게 되면 까닭을 보이고 요청을 보내지 않는다", async () => {
+    const server = await released();
+    let detail: AgentDetail = server.detail();
+    const { api, services } = renderAt(DETAIL, {
+      ...meAs(me()),
+      ...server.routes,
+      [`GET ${PATH}`]: () => json(200, detail),
+      "POST /v1/sessions": created,
+    });
+    const { user, dialog } = await openDialog();
+    await user.type(within(dialog).getByLabelText(MESSAGE), "요약해 줘");
+    const next = unreadableActive(detail, false);
+    detail = next.detail;
+    await services.queryClient.invalidateQueries();
+    await waitFor(() =>
+      expect(within(dialog).getByRole("alert").textContent).toBe(
+        reasonFor(next.id),
+      ),
+    );
+    await user.click(within(dialog).getByRole("button", { name: SUBMIT }));
+    expect(within(dialog).getByRole("alert").textContent).toBe(
+      reasonFor(next.id),
+    );
+    expect(
+      api.calls.filter(
+        (call) => call.method === "POST" && call.path === "/v1/sessions",
+      ),
+    ).toHaveLength(0);
+  });
+
   test("안내는 세 언어 모두 고치는 법을 담는다", () => {
     for (const table of [agentsKo, agentsEn, agentsJa]) {
       for (const key of [

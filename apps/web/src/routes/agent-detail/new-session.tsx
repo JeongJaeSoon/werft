@@ -35,7 +35,7 @@ import {
   Text,
   Textarea,
 } from "@werft-ai/ui";
-import { type FormEvent, useId, useRef, useState } from "react";
+import { type FormEvent, type ReactNode, useId, useRef, useState } from "react";
 import { connectionsQuery } from "../../api/queries.ts";
 import { useCan } from "../../auth/guard.tsx";
 import { MESSAGE_MAX_BYTES } from "../../auth/limits.ts";
@@ -86,7 +86,28 @@ function useScopeReason(): string | undefined {
     : t("guard.missingScope", { scope: "sessions:write" });
 }
 
-export function useNewSessionReason(detail: AgentDetail): string | undefined {
+/**
+ * The active release this build cannot read: the detail still names it, but
+ * carries no release or lists it among the unreadable rows.
+ */
+function unreadableActiveRelease(detail: AgentDetail): string | null {
+  const id = detail.agent.active_release_id;
+  if (id === null) return null;
+  // `?? false`: an API from before the field omits it mid-rollout.
+  const listed =
+    detail.unreadable_releases?.some((row) => row.id === id) ?? false;
+  return detail.active_release === null || listed ? id : null;
+}
+
+export interface NewSessionStart {
+  /** The release a start would send; null while there is none to send. */
+  readonly releaseId: string | null;
+  readonly reason: string | undefined;
+  /** The Release tab is where the reason is fixed. */
+  readonly fixedOnReleaseTab: boolean;
+}
+
+export function useNewSessionStart(detail: AgentDetail): NewSessionStart {
   const { t } = useI18n();
   const { client } = useWerft();
   const scopeReason = useScopeReason();
@@ -96,12 +117,25 @@ export function useNewSessionReason(detail: AgentDetail): string | undefined {
     enabled: release !== null,
   });
   const stopped = consolePolicyBlock(detail.agent);
-  if (stopped !== null) return t(AGENT_REASONS[stopped]);
-  if (scopeReason !== undefined) return scopeReason;
+  const unreadable = unreadableActiveRelease(detail);
+  const releaseId = unreadable === null ? (release?.id ?? null) : null;
+  const blocked = (reason: string | undefined) => ({
+    releaseId,
+    reason,
+    fixedOnReleaseTab: false,
+  });
+  if (stopped !== null) return blocked(t(AGENT_REASONS[stopped]));
+  if (scopeReason !== undefined) return blocked(scopeReason);
+  if (unreadable !== null)
+    return {
+      releaseId,
+      reason: t("newSession.releaseUnreadable", { release: unreadable }),
+      fixedOnReleaseTab: true,
+    };
   const refused = release
     ? foreseenServerRefusal(release, connections.data?.items)
     : null;
-  return refused === null ? undefined : t(RELEASE_REASONS[refused]);
+  return blocked(refused === null ? undefined : t(RELEASE_REASONS[refused]));
 }
 
 const AGENT_REASONS = {
@@ -116,10 +150,17 @@ const RELEASE_REASONS = {
 
 export function NewSessionReason({
   reason,
+  action,
 }: {
   readonly reason: string | undefined;
+  readonly action?: ReactNode;
 }) {
-  return reason === undefined ? null : <Text variant="sub">{reason}</Text>;
+  return reason === undefined ? null : (
+    <Text variant="sub" className="wrap-anywhere">
+      {reason}
+      {action ? <> {action}</> : null}
+    </Text>
+  );
 }
 
 type CreateBody = {
@@ -306,6 +347,14 @@ export function NewSessionButton({
       ? (guidanceFor(error.code, locale) ?? t(key))
       : t(key);
   };
+  // The detail may be read again while the dialog is open and carry no release
+  // to start on: say why in place of a button that would do nothing.
+  const error =
+    releaseId === null && !create.isPending
+      ? reason
+      : create.error
+        ? refusal(create.error)
+        : undefined;
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (releaseId === null || create.isPending) return;
@@ -429,7 +478,7 @@ export function NewSessionButton({
               })}
             </fieldset>
           ) : null}
-          {create.error ? <FormError>{refusal(create.error)}</FormError> : null}
+          {error ? <FormError>{error}</FormError> : null}
           <DialogFooter>
             <DialogClose asChild>
               <Button
