@@ -268,3 +268,45 @@ describe("scripted Responses API", () => {
     }
   });
 });
+
+describe("a spec sent again on a later turn", () => {
+  test("its second turn calls under ids its first turn did not use", async () => {
+    const prompt = user(
+      spec({
+        id: "again",
+        steps: [
+          { tool: "exec_command", input: { cmd: "a" } },
+          { tool: "exec_command", input: { cmd: "b" } },
+        ],
+        final: "done",
+      }),
+    );
+    const input: unknown[] = [];
+    const playTurn = async () => {
+      input.push(prompt);
+      const ids: string[] = [];
+      for (;;) {
+        const reply = await replyFor({ input: [...input], tools }, []);
+        const calls = reply.toolCalls ?? [];
+        if (calls.length === 0) return ids;
+        for (const call of calls) {
+          ids.push(call.callId);
+          input.push(
+            {
+              type: "function_call",
+              call_id: call.callId,
+              name: call.name,
+              arguments: call.arguments,
+            },
+            output(call.callId),
+          );
+        }
+      }
+    };
+    const first = await playTurn();
+    const second = await playTurn();
+    expect(first).toHaveLength(2);
+    expect(second).toHaveLength(2);
+    expect(second.filter((id) => first.includes(id))).toEqual([]);
+  });
+});

@@ -43,7 +43,20 @@ const SWITCH_LABELS = {
     ko: "workflow 파일 수정과 CI 결과 보기",
     ja: "ワークフローファイルの変更と CI 結果の確認",
   },
+  review: {
+    en: "Approve reviews",
+    ko: "리뷰 승인",
+    ja: "レビュー承認",
+  },
+  merge: {
+    en: "Merge its own pull requests",
+    ko: "자기 PR 머지",
+    ja: "自分の PR のマージ",
+  },
 } as const;
+type Switch = keyof typeof SWITCH_LABELS;
+const isSwitch = (feature: string | null): feature is Switch =>
+  feature !== null && Object.hasOwn(SWITCH_LABELS, feature);
 
 /**
  * Where a switch is off, and who turns it on: the agent's GitHub settings
@@ -51,12 +64,12 @@ const SWITCH_LABELS = {
  * ceiling first.
  */
 export function switchOffDetails(
-  feature: keyof typeof SWITCH_LABELS,
+  feature: Switch,
   offIn: "agent" | "ceiling" | "both",
 ) {
   const label = SWITCH_LABELS[feature].en;
   return {
-    reason_code: feature === "actions" ? "actions_off" : "workflows_off",
+    reason_code: `${feature}_off` as const,
     off_in: offIn,
     switch_labels: SWITCH_LABELS[feature],
     hint:
@@ -198,15 +211,16 @@ export function createToolDispatcher(deps: {
 }) {
   return async function dispatch(call: ToolCall) {
     const { grant, tool, args, requestId, startedAt, github, state } = call;
-    // A run started directly and reading CI each have their own switch; the
-    // code names it, and where it is off. The agent's side is off here (its
-    // settings are why the tool is refused); the ceiling may be off too.
+    // A run started directly, reading CI and approving a review each have
+    // their own switch; the code names it, and where it is off. The agent's
+    // side is off here (its settings are why the tool is refused); the
+    // ceiling may be off too.
     const off = () => {
       const feature = GITHUB_MCP_TOOL_FEATURES[tool];
       return refusalOf(
         tool,
         "feature_off",
-        feature === "actions" || feature === "workflows"
+        isSwitch(feature)
           ? switchOffDetails(
               feature,
               state.ceiling?.[feature] === false ? "both" : "agent",
@@ -233,10 +247,7 @@ export function createToolDispatcher(deps: {
     // On for the agent, off in the ceiling: the same code, naming the
     // ceiling, before the gate would refuse it as over_workspace_ceiling.
     const switched = GITHUB_MCP_TOOL_FEATURES[tool];
-    if (
-      (switched === "actions" || switched === "workflows") &&
-      state.ceiling?.[switched] === false
-    ) {
+    if (isSwitch(switched) && state.ceiling?.[switched] === false) {
       return toolAnswer(
         refused(
           refusalOf(tool, "feature_off", switchOffDetails(switched, "ceiling")),
@@ -289,19 +300,26 @@ export function createToolDispatcher(deps: {
       return toolAnswer(await handler(context, parsed.data));
     } catch (error) {
       if (error instanceof SessionServiceError) {
+        const refusal = refusalFromServiceError(
+          tool,
+          error,
+          await personRejection(services, actor, sessionId, error, parsed.data),
+        );
+        // The gate says where merging is off; the switch's name and who
+        // turns it on are added here, as for the switches judged above.
+        const offIn = refusal.details?.off_in;
         return toolAnswer(
           refused(
-            refusalFromServiceError(
-              tool,
-              error,
-              await personRejection(
-                services,
-                actor,
-                sessionId,
-                error,
-                parsed.data,
-              ),
-            ),
+            refusal.details?.reason_code === "merge_off" &&
+              (offIn === "agent" || offIn === "ceiling" || offIn === "both")
+              ? {
+                  ...refusal,
+                  details: {
+                    ...refusal.details,
+                    ...switchOffDetails("merge", offIn),
+                  },
+                }
+              : refusal,
           ),
         );
       }

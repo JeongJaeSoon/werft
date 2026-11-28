@@ -23,6 +23,7 @@ import {
   auditRetentionResponseSchema,
   authMeResponseSchema,
   bootstrapResponseSchema,
+  checkSkillRepositoryResponseSchema,
   checkSkillResponseSchema,
   commentPullRequestResponseSchema,
   completeGitHubAppManifestResponseSchema,
@@ -144,6 +145,7 @@ import {
   putGitHubPullRequestSettingsResponseSchema,
   putGitHubRepositoryAppPinResponseSchema,
   putGitHubUserLinkAppResponseSchema,
+  putSkillRepositoryRefResponseSchema,
   putSlackBindingResponseSchema,
   putSlackConfigTokenResponseSchema,
   putSlackSecretResponseSchema,
@@ -151,8 +153,10 @@ import {
   readyResponseSchema,
   receiptAcceptedResponseSchema,
   recheckSlackAppEventsResponseSchema,
+  registerSkillRepositoryResponseSchema,
   registerSkillResponseSchema,
   rejudgeSessionResponseSchema,
+  removeSkillRepositoryResponseSchema,
   rerunWorkflowResponseSchema,
   resolveSlackBindingResponseSchema,
   retryGitHubWebhookUpdatesResponseSchema,
@@ -174,6 +178,8 @@ import {
   settingsConnectionImpactResponseSchema,
   skillAttachmentResponseSchema,
   skillListSchema,
+  skillRepositoryDetailSchema,
+  skillRepositoryListSchema,
   skillSyncResponseSchema,
   skillVersionChangeResponseSchema,
   skillVersionFilesSchema,
@@ -467,6 +473,16 @@ export const responseSchemas = {
   "POST /v1/workspace/skills/{name}/sync/check": checkSkillResponseSchema,
   "PUT /v1/workspace/skills/{name}/sync": skillSyncResponseSchema,
   "PUT /v1/workspace/skills/{name}/sync/auto-approve": skillSyncResponseSchema,
+  "GET /v1/workspace/skill-repositories": skillRepositoryListSchema,
+  "POST /v1/workspace/skill-repositories":
+    registerSkillRepositoryResponseSchema,
+  "GET /v1/workspace/skill-repositories/{id}": skillRepositoryDetailSchema,
+  "DELETE /v1/workspace/skill-repositories/{id}":
+    removeSkillRepositoryResponseSchema,
+  "POST /v1/workspace/skill-repositories/{id}/check":
+    checkSkillRepositoryResponseSchema,
+  "PUT /v1/workspace/skill-repositories/{id}/ref":
+    putSkillRepositoryRefResponseSchema,
   "POST /v1/workspace/skills/{name}/revert": revertSkillResponseSchema,
   "GET /v1/workspace/skills/versions/{id}/files": skillVersionFilesSchema,
   "POST /v1/workspace/skills/versions/{id}/review":

@@ -1242,7 +1242,7 @@ describe("reviewing a pull request", () => {
           },
         }),
         403,
-        "feature_off",
+        "review_off",
       ],
       [
         app({ ceiling: { ...ACTIONS_ON, review: false } }),

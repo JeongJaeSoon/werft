@@ -384,6 +384,48 @@ describe("GitHub pull requests", () => {
       }
     });
 
+    test("a rate-limited merge request is not sent again: it asked for no retry (94S-2492)", async () => {
+      for (const limited of [
+        // Secondary: GitHub names the wait in retry-after.
+        () =>
+          Response.json(
+            { message: "You have exceeded a secondary rate limit." },
+            { status: 403, headers: { "retry-after": "1" } },
+          ),
+        // Primary: the budget is spent until x-ratelimit-reset.
+        () =>
+          Response.json(
+            { message: "API rate limit exceeded" },
+            {
+              status: 429,
+              headers: {
+                "x-ratelimit-remaining": "0",
+                "x-ratelimit-reset": String(Math.ceil(Date.now() / 1000) + 1),
+              },
+            },
+          ),
+      ]) {
+        const seen: string[] = [];
+        const stub = Bun.serve({
+          port: 0,
+          fetch(request) {
+            seen.push(request.method);
+            return limited();
+          },
+        });
+        try {
+          const forge = await appForgeAt(stub.port);
+          const error = await forge
+            .mergePullRequest({ number: 7, sha: SHA })
+            .catch((caught: unknown) => caught);
+          expect(error).toBeInstanceOf(Error);
+          expect(seen).toEqual(["PUT"]);
+        } finally {
+          await stub.stop(true);
+        }
+      }
+    });
+
     test("waits while it is pending and answers the merge commit", async () => {
       const github = await scripted([202, pending()], [pending(), merged]);
       try {

@@ -7,17 +7,13 @@ import type {
 } from "@werft-ai/contracts";
 import { githubSignatureMatches } from "../github/index.ts";
 import type { GitHubAppCredential } from "../github/ports/github-app-store.ts";
-import {
-  GitHubAppCheckError,
-  githubUnavailableOf,
-} from "../github/ports/github-app-store.ts";
+import { GitHubAppCheckError } from "../github/ports/github-app-store.ts";
 import {
   ACTOR_INACTIVE,
   type AuthorizationPolicy,
   type Caller,
   NOT_FOUND,
   OUTRANKED,
-  requirePermitted,
   SessionServiceError,
 } from "../musterrolle/index.ts";
 import {
@@ -32,6 +28,7 @@ import type {
   SkillSyncIssue,
   SkillSyncTrigger,
 } from "./ports/skill-git-source-store.ts";
+import { refused, skillManager, unavailable } from "./skill-manage.ts";
 import { skillVersionViewOf } from "./skill-service.ts";
 
 // Git skills: a push
@@ -62,6 +59,30 @@ export type GitHubSkillRepository = {
   ownerId: number;
   /** GitHub's `visibility` is `public`; private and internal are not. */
   public: boolean;
+  /** The branch a repository registered with no ref follows. */
+  defaultBranch: string;
+  /** The license as GitHub names it, an SPDX id; null when it names none. */
+  license: string | null;
+};
+
+/** One entry of a commit's tree, as GitHub lists it. */
+export type GitHubTreeEntry = {
+  /** Counted down the tree, starting at the repository root. */
+  path: string;
+  /** `120000` is a symlink, `100755` a file with an execute bit. */
+  mode: string;
+  type: "blob" | "tree" | "commit";
+  sha: string;
+  /** A blob's bytes; 0 for a tree or a submodule. */
+  size: number;
+};
+
+export type GitHubRepositoryTree = {
+  /** The root tree's sha. */
+  sha: string;
+  entries: GitHubTreeEntry[];
+  /** GitHub cut the listing short: this is not the whole tree. */
+  truncated: boolean;
 };
 
 /** GitHub as one installation's token reads it. Throws GitHubAppCheckError. */
@@ -94,6 +115,20 @@ export interface GitHubSkillReader {
     commit: string,
     path: string,
   ): Promise<GitHubSkillTree>;
+  /** Every entry under the root of `commit`, in one read; null when the commit is not there. */
+  tree(
+    app: AppKey,
+    installationId: number,
+    repositoryId: number,
+    commit: string,
+  ): Promise<GitHubRepositoryTree | null>;
+  /** The bytes of those blobs by sha; one that is not there is left out. */
+  blobs(
+    app: AppKey,
+    installationId: number,
+    repositoryId: number,
+    shas: readonly string[],
+  ): Promise<Map<string, Uint8Array>>;
   /** Whether `ref` names a branch, and not a tag or a commit. */
   isBranch(
     app: AppKey,
@@ -142,20 +177,6 @@ export const SKILL_DAILY_CHECK_PASS_MS = 10 * 60_000;
  */
 export const SKILL_DAILY_CLAIM_MS = 30 * 60_000;
 const DAILY_BATCH = 50;
-
-const refused = (reasonCode: string, message: string, details = {}) =>
-  new SessionServiceError("BAD_REQUEST", message, undefined, {
-    reason_code: reasonCode,
-    ...details,
-  });
-
-const unavailable = (error: unknown) =>
-  new SessionServiceError(
-    "GITHUB_UNAVAILABLE",
-    "GitHub could not be read with the workspace's App",
-    undefined,
-    { reason_code: githubUnavailableOf(error) },
-  );
 
 const asNumber = (value: unknown): number | null =>
   typeof value === "number" && Number.isSafeInteger(value) && value > 0
@@ -451,31 +472,7 @@ export function createSkillGitSync(
     running.add(run);
   }
 
-  function webUser(caller: Caller): string {
-    const userId = caller.actor?.userId;
-    if (
-      caller.subject.surface.kind !== "web" ||
-      caller.subject.principal?.kind !== "user" ||
-      !userId
-    ) {
-      throw new SessionServiceError(
-        "FORBIDDEN",
-        "Skills are changed from a signed-in console session, not with an API key",
-        undefined,
-        { reason_code: "web_session_required" },
-      );
-    }
-    return userId;
-  }
-
-  async function manager(caller: Caller): Promise<string> {
-    const userId = webUser(caller);
-    await requirePermitted(authorization, caller, "workspace.manage", {
-      kind: "workspace",
-      id: caller.ownerId,
-    });
-    return userId;
-  }
+  const manager = (caller: Caller) => skillManager(authorization, caller);
 
   /**
    * No push reaches a public source: its App is not installed there. It

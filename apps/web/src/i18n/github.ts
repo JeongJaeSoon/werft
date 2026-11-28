@@ -121,9 +121,9 @@ export const githubKo = {
   "github.newApp.public": "여러 조직에서 (공개 App)",
   "github.newApp.publicHint":
     "다른 조직도 설치할 수 있게 됩니다. 콘솔은 에이전트가 고른 저장소에만 토큰을 받습니다.",
-  "github.newApp.actions": "Actions·워크플로 권한도 받기",
+  "github.newApp.actions": "workflow 직접 실행 권한도 받기",
   "github.newApp.actionsHint":
-    "에이전트가 워크플로를 실행하고 워크플로 파일을 고칠 수 있게 actions·workflows 쓰기와 CI 결과를 읽을 checks 읽기를 더합니다. 나중에 더해도 다시 설치할 필요는 없습니다.",
+    "workflow 파일 수정(workflows 쓰기)과 CI 결과 보기(actions·checks 읽기)는 늘 받습니다. 체크하면 에이전트가 workflow를 직접 실행할 수 있게 actions 쓰기를 받습니다. 나중에 더해도 다시 설치할 필요는 없습니다.",
   "github.newApp.next":
     "GitHub로 이동해 이름을 확인하고 Create를 누릅니다. 콘솔로 돌아오면 키가 저장됩니다(1시간 안에 마쳐야 합니다). 그다음 설치 화면에서 저장소를 고릅니다.",
   "github.newApp.submit": "GitHub에서 만들기",
@@ -258,7 +258,7 @@ export const githubKo = {
     "PR에 코멘트·변경 요청·승인 리뷰를 남깁니다. 리뷰 승인용 App이 있어야 켤 수 있습니다.",
   "github.feature.merge": "자기 PR 머지",
   "github.feature.mergeHint":
-    "사용자가 머지하라고 지시하면 에이전트가 자기 세션이 연 PR을 squash로 머지합니다. 필수 check와 리뷰는 GitHub가 판단하고 브랜치 보호는 우회하지 않습니다. 기본값은 꺼짐입니다.",
+    "사용자가 머지하라고 지시하면 에이전트가 자기 세션이 연 PR을 squash로 머지합니다. 필수 check와 리뷰는 GitHub가 판단하고 브랜치 보호는 우회하지 않습니다. 기본값은 꺼짐이고, 에이전트의 GitHub 탭에서도 켜야 머지합니다.",
   "github.ceiling.title": "에이전트가 쓸 수 있는 기능",
   "github.ceiling.hint":
     "워크스페이스 전체의 상한입니다. 에이전트마다 켜는 것은 에이전트의 GitHub 탭에서 합니다. 스위치를 바꾸면 바로 저장되고, 앞 릴리스로 도는 세션도 다음 GitHub 요청부터 따릅니다.",
@@ -482,9 +482,9 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.newApp.public": "Several organizations (public App)",
   "github.newApp.publicHint":
     "Other organizations can install it too. The console gets tokens only for the repositories agents pick.",
-  "github.newApp.actions": "Also ask for Actions and workflow permissions",
+  "github.newApp.actions": "Also ask to run workflows directly",
   "github.newApp.actionsHint":
-    "Adds actions and workflows write so agents can run workflows and change workflow files, and checks read to see CI results. Adding them later needs no reinstall.",
+    "Editing workflow files (workflows write) and seeing CI results (actions and checks read) are always asked for. Checking this asks for actions write, so agents can run workflows directly. Adding it later needs no reinstall.",
   "github.newApp.next":
     "On GitHub, check the name and click Create. Back in the console the key is stored (finish within an hour). Then pick repositories on the install screen.",
   "github.newApp.submit": "Create on GitHub",
@@ -621,7 +621,7 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
     "Leave comments, change requests and approvals on pull requests. Needs a reviewer App.",
   "github.feature.merge": "Merge its own pull requests",
   "github.feature.mergeHint":
-    "When a person tells it to, an agent squash-merges a pull request its own session opened. GitHub still decides on required checks and reviews, and branch protection is never bypassed. Off by default.",
+    "When a person tells it to, an agent squash-merges a pull request its own session opened. GitHub still decides on required checks and reviews, and branch protection is never bypassed. Off by default, and the agent's GitHub tab must have it on as well.",
   "github.ceiling.title": "Features agents may use",
   "github.ceiling.hint":
     "The workspace's ceiling. Each agent turns features on in its own GitHub tab. A switch saves at once, and sessions still on an earlier release follow it from their next GitHub request.",
@@ -848,9 +848,9 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.newApp.public": "複数の組織 (公開 App)",
   "github.newApp.publicHint":
     "ほかの組織もインストールできるようになります。コンソールはエージェントが選んだリポジトリにだけトークンを取得します。",
-  "github.newApp.actions": "Actions・ワークフローの権限も取得する",
+  "github.newApp.actions": "ワークフローの直接実行の権限も取得する",
   "github.newApp.actionsHint":
-    "エージェントがワークフローを実行し、ワークフローファイルを変更できるよう actions・workflows の書き込みと、CI 結果を読む checks の読み取りを追加します。あとで追加しても再インストールは不要です。",
+    "ワークフローファイルの変更 (workflows の書き込み) と CI 結果の確認 (actions・checks の読み取り) は常に取得します。チェックすると、エージェントがワークフローを直接実行できるよう actions の書き込みを取得します。あとで追加しても再インストールは不要です。",
   "github.newApp.next":
     "GitHub で名前を確認して Create を押します。コンソールに戻ると鍵が保存されます (1 時間以内に完了してください)。続いてインストール画面でリポジトリを選びます。",
   "github.newApp.submit": "GitHub で作成",
@@ -987,7 +987,7 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
     "PR にコメント・変更依頼・承認のレビューを残します。レビュー承認用 App があると有効にできます。",
   "github.feature.merge": "自分の PR のマージ",
   "github.feature.mergeHint":
-    "人が指示したとき、エージェントは自分のセッションが開いた PR を squash でマージします。必須チェックとレビューは GitHub が判断し、ブランチ保護は回避しません。既定はオフです。",
+    "人が指示したとき、エージェントは自分のセッションが開いた PR を squash でマージします。必須チェックとレビューは GitHub が判断し、ブランチ保護は回避しません。既定はオフで、エージェントの GitHub タブでもオンにする必要があります。",
   "github.ceiling.title": "エージェントが使える機能",
   "github.ceiling.hint":
     "ワークスペース全体の上限です。エージェントごとに有効にするのは、エージェントの GitHub タブで行います。スイッチを変えるとすぐに保存され、以前のリリースで動くセッションも次の GitHub リクエストから従います。",

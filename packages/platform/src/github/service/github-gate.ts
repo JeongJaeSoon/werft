@@ -174,7 +174,14 @@ export function createGitHubGate(deps: {
           reason,
           operation,
         );
-        throw new GitHubGateError(reason, receiptId);
+        const { off_in: offIn } = extra;
+        throw new GitHubGateError(
+          reason,
+          receiptId,
+          offIn === "agent" || offIn === "ceiling" || offIn === "both"
+            ? offIn
+            : undefined,
+        );
       };
 
       if (named === null) return await refuse("repository_not_allowed");
@@ -280,19 +287,28 @@ export function createGitHubGate(deps: {
         context.ceiling,
       );
       const needs = githubPermissionsFor(work.purpose, features);
-      if (
-        !platformRead &&
-        needs.ceilingFeature !== undefined &&
-        !context.ceiling[needs.ceilingFeature]
-      ) {
-        return await refuse("merge_off");
+      if (!platformRead && needs.ceilingFeature !== undefined) {
+        // Off by default on both sides, and no pin holds it: a session on a
+        // release's pin, or one that started with it off, does not merge.
+        const agentOn = settings?.features[needs.ceilingFeature] === true;
+        const ceilingOn = context.ceiling[needs.ceilingFeature];
+        if (!agentOn || !ceilingOn) {
+          return await refuse("merge_off", {
+            off_in: agentOn ? "ceiling" : ceilingOn ? "agent" : "both",
+          });
+        }
       }
       if (!platformRead && needs.feature !== null) {
         if (settings === null || !settings.features[needs.feature]) {
-          // Running a workflow directly has its own switch and its own code,
-          // never a person's approval: the token cannot hold actions: write.
+          // Running a workflow directly and approving a review each have
+          // their own switch and code, never a person's approval: the token
+          // is not asked for.
           return await refuse(
-            needs.feature === "actions" ? "actions_off" : "feature_off",
+            needs.feature === "actions"
+              ? "actions_off"
+              : needs.feature === "review"
+                ? "review_off"
+                : "feature_off",
           );
         }
         if (!features[needs.feature]) {

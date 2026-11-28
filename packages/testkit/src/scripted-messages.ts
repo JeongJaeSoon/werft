@@ -104,6 +104,33 @@ function toolReferencesIn(messages: readonly Message[]): string[] {
   return [...names];
 }
 
+/**
+ * `base`, or the first `base_<n>` from 2 up that is not in `used`. The
+ * engine drops a call whose id its history already holds, with its result,
+ * so a spec sent again on a later turn would never get past its first step
+ * under the ids the earlier turn used. Deterministic, so a retried request
+ * gets the same id.
+ */
+export function unusedId(base: string, used: ReadonlySet<string>): string {
+  if (!used.has(base)) return base;
+  let n = 2;
+  while (used.has(`${base}_${n}`)) n++;
+  return `${base}_${n}`;
+}
+
+/** The ids of the tool calls the conversation already holds. */
+function toolUseIdsIn(messages: readonly Message[]): Set<string> {
+  const ids = new Set<string>();
+  for (const message of messages) {
+    if (message?.role !== "assistant") continue;
+    for (const block of blocksOf(message)) {
+      const { id } = block as { id?: unknown };
+      if (block.type === "tool_use" && typeof id === "string") ids.add(id);
+    }
+  }
+  return ids;
+}
+
 /** The latest spec in the conversation and how many tool results follow it. */
 export function planOf(
   messages: readonly Message[],
@@ -266,7 +293,10 @@ export function replyFor(
         : toolReply(
             next.tool,
             next.input,
-            `toolu_call_${call.spec.id}_${call.step}`,
+            unusedId(
+              `toolu_call_${call.spec.id}_${call.step}`,
+              toolUseIdsIn(messages),
+            ),
           );
     const delayMs = next === undefined ? call.spec.delayMs : next.delayMs;
     return delayMs === undefined ? reply : Bun.sleep(delayMs).then(() => reply);
@@ -277,7 +307,11 @@ export function replyFor(
   const reply =
     next === undefined
       ? textReply(finalOf(spec, [request.body.system, messages]))
-      : toolReply(next.tool, next.input, `toolu_gate_${spec.id}_${step}`);
+      : toolReply(
+          next.tool,
+          next.input,
+          unusedId(`toolu_gate_${spec.id}_${step}`, toolUseIdsIn(messages)),
+        );
   const delayMs = next === undefined ? spec.finalDelayMs : next.delayMs;
   return delayMs === undefined ? reply : Bun.sleep(delayMs).then(() => reply);
 }

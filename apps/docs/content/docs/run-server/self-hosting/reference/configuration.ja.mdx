@@ -159,6 +159,7 @@ worker は claim 時に、実際に自分のイメージに含む組み合わせ
 | `WORKER_CPUS` | 1 | 一つの worker の CPU 割り当て。0.01 以上 |
 | `WORKER_MEMORY_MB` | 4608 | 一つの worker のメモリ上限（MiB）。非圧縮の 512MiB transcript を resume したエンジンが上限の半分未満に収まるよう決めた値です。開発用 `.env.example` の 2048 は基準を満たさないため、大きな transcript の復元試験では `WORKER_MEMORY_MB` の行を削除するか 4608 に変えます |
 | `WORKER_IDLE_TIMEOUT_SEC` | 1800 | 入力のない worker が終わるまで待つ秒数です。その間 worker は場所を確保したままです。60〜7200 の範囲外なら scheduler は起動しません。Kubernetes では、新しいセッションの worker Pod が場所不足で起動できないとき、この時間を待たずに最も長く休んでいる worker を一つずつ止めます。ターンが開いている worker は止めません。人の回答を待つターンも開いたターンです。止めたセッションは次の入力で新しい worker が checkpoint から続けます。Codex sandbox Pod は Codex ラベルのノードにだけ起動するため、そのノードの worker だけを止めます。`SCHEDULER_NODE_CAPACITY_CHECK` が無効なら sandbox worker だけが候補で、有効ならラベルのノード上の休んでいる worker がすべて候補です |
+| `WORKER_MAX_TURN_TOOL_CALLS` | 500 | セッションのターン一つが呼べるツール呼び出しの数です。サブエージェントの呼び出しも数えます。1〜100000 の範囲外なら scheduler は起動しません。scheduler が起動する worker に渡します。上限を超える呼び出しが来ると、worker はそのターンだけを止めて `failed(tool_call_limit)` で終えます。セッションはそのままで、次のメッセージで続けられます。Slack スレッドには通常の失敗案内の代わりにツールを呼びすぎて止めたという一行が残り、入力 receipt は `INTERNAL_ERROR`・message `tool_call_limit` で失敗します。すでに動いている worker は起動時に受けた値を使います |
 | `WORKER_PIDS_LIMIT` | 512 | 一つの worker の PID 上限。compose は渡しません |
 | `EXECUTION_DOCKER_USER` | `1000:1000` | worker の数値 `uid[:gid]`。uid または gid が 0 なら起動拒否。worker イメージの `/workspace` 所有者と一致する必要があります |
 | `EXECUTION_DOCKER_HOME_DIR` | `/home/worker` | tmpfs で mount する HOME。絶対パス |
@@ -276,6 +277,7 @@ Helm chart（`deploy/helm/werft`、設置手順は [Kubernetes 設置（Helm cha
 | `EXECUTION_WORKSPACE_QUOTA_MB`、`EXECUTION_WORKSPACE_GC_MIN_AGE_SEC`、`EXECUTION_WORKSPACE_ENFORCED_BY_STORAGE` | `worker.workspace.quotaMb`、`worker.workspace.gcMinAgeSec`、`worker.workspace.enforcedByStorage` | 要求サイズ・回収最小経過時間・設置全体の強制宣言 |
 | `WORKER_CPUS`、`WORKER_MEMORY_MB` | `worker.cpus`、`worker.memoryMb` | |
 | `WORKER_IDLE_TIMEOUT_SEC` | `worker.idleTimeoutSeconds` | 60〜7200 の範囲外なら chart は描画を拒否します |
+| `WORKER_MAX_TURN_TOOL_CALLS` | `worker.maxTurnToolCalls` | 1〜100000 の範囲外なら chart は描画を拒否します |
 | `EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB` | `worker.ephemeralStorageMb` | 既定 1024 |
 | `SCHEDULER_NODE_CAPACITY_CHECK` | `scheduler.nodeCapacityCheck.enabled` | 既定 `false`。有効にすると chart は Node を読むだけの ClusterRole を scheduler に作成します。[起動時のノードサイズ警告](/run-server/self-hosting/capacity#설치-때-노드-크기-경고선택) |
 | 設置上限（`EXECUTION_SLOT_LIMIT` など） | `config.limits` | api と scheduler に同じ値 |

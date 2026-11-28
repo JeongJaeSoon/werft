@@ -402,4 +402,40 @@ test("a close of a session no longer there is not_found, not closed work", async
       reason: "completed",
     }),
   ).toBe("not_found");
+// 94S-2539 (M14): who the status event of a close names.
+describe("the actor a task's close is recorded as", () => {
+  const actorsOf = async (sessionId: string) =>
+    (
+      await db
+        .select({ payload: events.payload })
+        .from(events)
+        .where(and(eq(events.sessionId, sessionId), eq(events.type, "status")))
+    )
+      .map(({ payload }) => (payload as { actor?: unknown }).actor)
+      .filter((actor) => actor !== undefined);
+
+  test("a pull request's close names the pull request event, not the owner", async () => {
+    const sessionId = await taskWithPullRequest("1", "merged");
+    expect(await createPostgresTaskCloses(db).closeOnPullRequests(10)).toBe(1);
+    expect(await actorsOf(sessionId)).toEqual([
+      { kind: "system", by: "pull_request_event" },
+    ]);
+  });
+
+  test("its requester's close names the owner it closed under", async () => {
+    const sessionId = await taskWithPullRequest("1", "open");
+    const [session] = await db
+      .select({ ownerId: sessions.ownerId })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    const ownerId = session?.ownerId ?? "";
+    expect(
+      await createPostgresTaskCloses(db).close({
+        principal: { ownerId },
+        sessionId,
+        reason: "cancelled",
+      }),
+    ).toBe("closed");
+    expect(await actorsOf(sessionId)).toEqual([{ owner_id: ownerId }]);
+  });
 });

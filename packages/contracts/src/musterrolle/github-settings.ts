@@ -39,21 +39,29 @@ export const githubFeaturesSchema = z.object(githubFeatureFields).strict();
 export const storedGitHubFeaturesSchema = z.object(githubFeatureFields);
 
 /**
- * As above, for an agent's settings row and a session's start snapshot.
- * `merge` is checked ahead of the build that writes and enforces it
- * (94S-2492), then left out: nothing in this build reads it, and what is read
- * here is written again (a start snapshot, a first save, a response) where an
- * earlier image refuses the key.
+ * The agent's own switches, as a save sends them and a read answers them: a
+ * pin's, and `merge`, which lets the agent squash-merge the pull request its
+ * own session opened. Only an agent's settings row and a session's start
+ * snapshot carry `merge`, never a release pin; absent reads as off, so a row
+ * saved before the key keeps merging off.
  */
-export const storedAgentGitHubFeaturesSchema = storedGitHubFeaturesSchema
-  .extend({ merge: z.boolean().optional() })
-  .transform(({ merge: _merge, ...known }) => known);
+const agentGitHubFeatureFields = {
+  ...githubFeatureFields,
+  merge: z.boolean().optional(),
+};
+export const agentGitHubFeaturesSchema = z
+  .object(agentGitHubFeatureFields)
+  .strict();
+
+/** As `storedGitHubFeaturesSchema`, for a settings row and a start snapshot. */
+export const storedAgentGitHubFeaturesSchema = z.object(
+  agentGitHubFeatureFields,
+);
 
 /**
  * What a workspace lets its agents do; no settings row reads all false.
- * `merge` is the workspace's alone: an agent row or a release pin never
- * carries it (both stay `githubFeaturesSchema`), and a stored ceiling without
- * the key reads as off.
+ * `merge` needs the agent's own `merge` as well (94S-2492); a stored ceiling
+ * without the key reads as off.
  */
 export const githubCeilingSchema = z
   .object({
@@ -171,7 +179,10 @@ export const GITHUB_REFUSAL_VALUES = [
   "ambiguous_app",
   // The connection pinned to the repository was removed.
   "pinned_app_removed",
+  // Merging is off in the agent's settings, the workspace ceiling, or both.
   "merge_off",
+  // The agent's switch for approving reviews is off.
+  "review_off",
 ] as const;
 export const githubRefusalSchema = z.enum(GITHUB_REFUSAL_VALUES);
 
@@ -182,6 +193,7 @@ const GITHUB_POLICY_REFUSALS: ReadonlySet<GitHubRefusal> = new Set([
   "feature_off",
   // The agent's switch for running workflows directly is off.
   "actions_off",
+  "review_off",
   "workflow_not_allowed",
   "agent_ref_refused",
   "run_ref_unprovable",
@@ -223,7 +235,7 @@ export function githubPermissionsFor(
 ): {
   role: GitHubAppRole;
   feature: keyof GitHubFeatures | null;
-  /** A ceiling key the workspace alone sets, which no agent or release holds. */
+  /** A switch no release pin holds: the agent's row and the ceiling both. */
   ceilingFeature?: "merge";
   permissions: Record<string, GitHubPermissionLevel>;
 } {
@@ -292,10 +304,10 @@ export function githubPermissionsFor(
  * turned on that the workspace does not allow.
  */
 export function githubFeaturesOverCeiling(
-  features: GitHubFeatures,
+  features: AgentGitHubFeatures,
   ceiling: GitHubCeiling,
-): (keyof GitHubFeatures)[] {
-  return (Object.keys(features) as (keyof GitHubFeatures)[]).filter(
+): (keyof AgentGitHubFeatures)[] {
+  return (Object.keys(features) as (keyof AgentGitHubFeatures)[]).filter(
     (feature) => features[feature] && !ceiling[feature],
   );
 }
@@ -735,5 +747,6 @@ export type PutGitHubPullRequestSettingsResponse = z.infer<
 export type GitHubPurpose = z.infer<typeof githubPurposeSchema>;
 export type GitHubAppRole = z.infer<typeof githubAppRoleSchema>;
 export type GitHubFeatures = z.infer<typeof githubFeaturesSchema>;
+export type AgentGitHubFeatures = z.infer<typeof agentGitHubFeaturesSchema>;
 export type GitHubCeiling = z.infer<typeof githubCeilingSchema>;
 export type GitHubRefusal = (typeof GITHUB_REFUSAL_VALUES)[number];

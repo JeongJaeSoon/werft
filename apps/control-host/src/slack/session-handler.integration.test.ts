@@ -790,6 +790,22 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     expect(notices).toEqual([]);
   });
 
+  test("a turn's input has the bot's mention cut first, then Slack's escapes read once", async () => {
+    const fixture = await agentInSlack();
+    const { handle } = handler();
+    await deliver(
+      fixture,
+      mention("100.000100", {
+        text: `<@${BOT_USER}> run &amp;&amp; echo &lt;@${BOT_USER}&gt; &amp;lt;`,
+      }),
+    );
+    expect(await drain(handle)).toMatchObject({ processed: 1 });
+    const [session] = await sessionsOf(fixture);
+    expect((await turnsOf(session?.id)).map((turn) => turn.message)).toEqual([
+      `run && echo <@${BOT_USER}> &lt;`,
+    ]);
+  });
+
   test("another thread is another session", async () => {
     const fixture = await agentInSlack();
     const { handle } = handler();
