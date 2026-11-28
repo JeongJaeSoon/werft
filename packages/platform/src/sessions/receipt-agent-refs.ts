@@ -134,13 +134,21 @@ export const RECEIPT_AGENT_REFS: Partial<Record<ReceiptOperation, AgentRefs>> =
   };
 
 const KNOWN_OPERATIONS: ReadonlySet<string> = new Set(RECEIPT_OPERATION_VALUES);
-// What the rows above name, in the same field names. An operation a newer
-// replica wrote has no row here, and reading it as one that carries no ids
-// would show a private agent's ids, so it is read as one that may carry any.
-const UNKNOWN_OPERATION_REFS = {
-  agents: ["agent_id", "agent_ids", "opened_by_agent_id"],
-  releases: ["agent_release_id", "release_id"],
-} as const satisfies AgentRefs;
+// An operation a newer replica wrote has no row here, and reading it as one
+// that carries no ids would show a private agent's ids, so it is read as one
+// that may carry any id the rows above name, under any of their fields.
+const UNKNOWN_OPERATION_REFS: AgentRefs = {
+  agents: [
+    ...new Set(
+      Object.values(RECEIPT_AGENT_REFS).flatMap((r) => r.agents ?? []),
+    ),
+  ],
+  releases: [
+    ...new Set(
+      Object.values(RECEIPT_AGENT_REFS).flatMap((r) => r.releases ?? []),
+    ),
+  ],
+};
 
 /** The row for the receipt's operation; none for a known one that carries no ids. */
 export function agentRefsRowOf(receipt: ReceiptRead): AgentRefs | undefined {
@@ -231,7 +239,14 @@ export function maskAgentRefs(
 
 function maskResult(receipt: ReceiptRead, hidden: Hidden): ReceiptRead {
   const row = agentRefsRowOf(receipt);
-  if (row === undefined || receipt.result === null) return receipt;
+  if (
+    row === undefined ||
+    typeof receipt.result !== "object" ||
+    receipt.result === null ||
+    Array.isArray(receipt.result)
+  ) {
+    return receipt;
+  }
   const result = { ...(receipt.result as Record<string, unknown>) };
   for (const [fields, ids, lower] of [
     [row.agents ?? [], hidden.agentIds, true],

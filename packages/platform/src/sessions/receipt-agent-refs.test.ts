@@ -41,6 +41,27 @@ test("an operation this build does not know masks the ids its result names", () 
   });
 });
 
+test("an unknown operation is masked under every field the table names", () => {
+  const unknown = receipt({
+    result: {
+      usage_agent_ids: [AGENT, "kept"],
+      before: { agents: [AGENT] },
+      previous_release_id: RELEASE,
+    },
+  });
+  expect(maskAgentRefs(unknown, hidden).result).toEqual({
+    usage_agent_ids: ["kept"],
+    before: { agents: [] },
+    previous_release_id: null,
+  });
+});
+
+test("a result that is not an object comes back as it is", () => {
+  for (const result of [["kept"], "ok", 42, true, null]) {
+    expect(maskAgentRefs(receipt({ result }), hidden).result).toEqual(result);
+  }
+});
+
 test("an unknown operation aimed at a hidden agent or release is not there", () => {
   for (const [kind, id] of [
     ["agent", AGENT],
