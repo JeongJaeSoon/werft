@@ -3597,7 +3597,7 @@ export interface paths {
         get?: never;
         /**
          * Name the skill version every agent of the workspace gets
-         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. `version_id` must be a version of `name` (400 `version_name_mismatch`), approved (`version_not_approved`) and not archived (`version_archived`); `mode: forbidden` takes any version that is not archived, approved or not, since it only keeps the name out. `follow: true` (with `required` or `optional`) instead follows the skill's current version: each new session takes the version current when it starts, so approving a higher version or reverting moves what the next session gets and never a running one. Replaces what the scope named before. A session takes it when it starts. Writes an `attach_extension` receipt.
+         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. `version_id` must be a version of `name` (400 `version_name_mismatch`), approved (`version_not_approved`) and not archived (`version_archived`); `mode: forbidden` takes any version that is not archived, approved or not, since it only keeps the name out. `follow: true` (with `required` or `optional`) instead follows the skill's current version: each new session takes the version current when it starts, so approving a higher version or reverting moves what the next session gets and never a running one. Replaces what the scope named before. A session takes it when it starts. A skill of a registered skill repository is refused in every mode (400 `repository_skill_workspace`): it is attached to an agent only. Writes an `attach_extension` receipt.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -3647,7 +3647,7 @@ export interface paths {
         get?: never;
         /**
          * Name the skill version the agent gets
-         * @description The agent's managers (owners, admins, the agent's own admins, members of its admin teams and its managing team's lead) signed in to the console; an API key is refused with 403 `reason_code` `web_session_required`. The version rules are the workspace scope's. Writes an `attach_extension` receipt on the agent.
+         * @description The agent's managers (owners, admins, the agent's own admins, members of its admin teams and its managing team's lead) signed in to the console; an API key is refused with 403 `reason_code` `web_session_required`. The version rules are the workspace scope's. A skill of a registered skill repository whose switch is off or whose repository was removed is refused (400 `skill_unavailable`, with its `availability`) unless the mode is `forbidden`. Writes an `attach_extension` receipt on the agent.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -13684,6 +13684,11 @@ export interface components {
                     /** @description The skill's current version: what a following attachment uses in a new session. */
                     current: boolean;
                 } | null;
+                /**
+                 * @description Anything but `ok` and a new session leaves the attachment out, even a `required` one, while a `forbidden` one still keeps the name out; it can still be taken back.
+                 * @enum {string}
+                 */
+                availability: "ok" | "hidden" | "withdrawn";
             }[];
         };
         PutAgentWorkspaceMcpServersRequest: {
@@ -40253,7 +40258,8 @@ export interface operations {
                      *             "reviewed_at": "2026-11-20T10:00:00.000Z",
                      *             "archived_at": null,
                      *             "current": true
-                     *           }
+                     *           },
+                     *           "availability": "ok"
                      *         }
                      *       ]
                      *     }

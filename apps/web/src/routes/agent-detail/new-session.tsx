@@ -139,12 +139,17 @@ export function optionalSkills(items: readonly AgentSkill[]): AgentSkill[] {
   const holds = (item: AgentSkill | undefined) =>
     item?.scope === "workspace" &&
     (item.mode === "required" || item.mode === "forbidden");
-  // As the server does, an optional row no session could use (no version,
-  // or one not approved) drops out before the scopes are weighed.
+  // As the server does, a row a new session leaves out drops before the
+  // scopes are weighed: a repository skill switched off or withdrawn (a
+  // server from before says nothing), and an optional row no session could
+  // use (no version, or one not approved).
   const usable = items.filter(
     (item) =>
-      item.mode !== "optional" ||
-      (item.version !== null && item.version.review === "approved"),
+      (item.mode === "forbidden" ||
+        (item.availability !== "hidden" &&
+          item.availability !== "withdrawn")) &&
+      (item.mode !== "optional" ||
+        (item.version !== null && item.version.review === "approved")),
   );
   // The list's order is not a precedence: decide per name over both scopes.
   const deciding = new Map<string, AgentSkill>();

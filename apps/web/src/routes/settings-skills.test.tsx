@@ -1201,6 +1201,7 @@ describe("에이전트 접근 탭의 스킬", () => {
               scope: "workspace",
               mode: "required",
               follows: false,
+              availability: "ok",
               version: version(1, { name: "triage", source: "github" }),
             },
             ...(saved
@@ -1210,6 +1211,7 @@ describe("에이전트 접근 탭의 스킬", () => {
                     scope: "agent" as const,
                     mode: "optional" as const,
                     follows: false,
+                    availability: "ok",
                     version: version(1),
                   },
                 ]

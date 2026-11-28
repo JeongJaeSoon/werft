@@ -1173,6 +1173,7 @@ describe("activation and the agent's extension bundles", () => {
       archivedAt: null,
       current: false,
     },
+    availability: "ok",
   };
   const extensions = {
     store: {
