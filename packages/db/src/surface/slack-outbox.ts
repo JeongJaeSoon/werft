@@ -2592,6 +2592,43 @@ export function createPostgresSlackOutboxStore(
       return row ?? null;
     },
 
+    async postedCard({ sessionId, channelId, slackTs, card }) {
+      if (!UUID.test(sessionId)) return null;
+      const l = sessionLinks;
+      // slackPromptDedupeKey and slackTurnDedupeKey, under the row's own link.
+      const [kind, prefix, suffix] =
+        card.kind === "turn"
+          ? (["failure_notice", "failure:", `:${card.turnId}`] as const)
+          : card.kind === "push"
+            ? (["input_notice", "push:", `:${card.pushRequestId}`] as const)
+            : (["input_notice", "prompt:", `:${card.requestId}`] as const);
+      const [row] = await db
+        .select({
+          id: l.id,
+          agentId: l.agentId,
+          channelId: l.channelId,
+          threadId: l.threadId,
+        })
+        .from(t)
+        .innerJoin(
+          l,
+          and(eq(l.id, t.sessionLinkId), eq(l.sessionId, t.sessionId)),
+        )
+        .where(
+          and(
+            eq(t.sessionId, sessionId.toLowerCase()),
+            eq(t.kind, kind),
+            eq(t.channelId, channelId),
+            eq(t.slackTs, slackTs),
+            sql`${t.dedupeKey} = ${prefix}::text || ${t.sessionLinkId}::text || ${suffix}::text`,
+            // A revoked link takes no more input (as a message there).
+            isNull(l.revokedAt),
+          ),
+        )
+        .limit(1);
+      return row ?? null;
+    },
+
     cards: createPostgresSlackCardSettleStore(db),
 
     async expireSending() {

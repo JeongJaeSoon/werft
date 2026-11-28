@@ -476,6 +476,16 @@ export type SurfacePendingPrompt = SurfaceLinkedTurnTarget & {
       };
 };
 
+/**
+ * Which card a pressed message is said to be: a permission or question
+ * card by its request, a push card by its push request, a turn's notice by
+ * the turn's public id.
+ */
+export type SurfacePostedCardKey =
+  | { kind: "prompt"; requestId: string }
+  | { kind: "push"; pushRequestId: string }
+  | { kind: "turn"; turnId: number };
+
 /** Where a session's progress message is: its link, the agent and the thread. */
 export type SurfaceProgressLink = {
   id: string;
@@ -924,6 +934,17 @@ export interface SurfaceOutboxStore {
    * none.
    */
   progressLink(sessionId: string): Promise<SurfaceProgressLink | null>;
+  /**
+   * The link of the card a row of the session sent as that message (its
+   * channel and ts) for that key, a mirror link's when the card went out on
+   * one; null when no row did, or its link is revoked.
+   */
+  postedCard(input: {
+    sessionId: string;
+    channelId: string;
+    slackTs: string;
+    card: SurfacePostedCardKey;
+  }): Promise<SurfaceProgressLink | null>;
   /** Requests of live linked sessions without their `input_notice` row. */
   unpromptedRequests(limit: number): Promise<SurfacePendingPrompt[]>;
   /** Moves `sending` rows whose lease ran out to `uncertain`. */
